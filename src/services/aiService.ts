@@ -78,6 +78,8 @@ export async function generateAnnualPlan(student: Student): Promise<AnnualPlanDa
 }
 
 export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal?: string): Promise<MonthlyJournalData> {
+  const effectiveGoal = monthlyGoal || "연간계획서에 목표가 설정되지 않았습니다.";
+  
   try {
     const prompt = `
       너는 10년 차 1급 전문 언어재활사 및 미술치료사이다. 다음 학생의 정보를 바탕으로 ${month}월 '개별 치료 일지'를 작성해라.
@@ -87,25 +89,31 @@ export async function generateMonthlyJournal(student: Student, month: number, mo
       - 장애 유형: ${student.disabilityType}
       - 치료 영역: ${student.treatmentArea}
       - 결제 일자(세션 날짜): ${student.paymentDates.join(", ")}
-      ${monthlyGoal ? `- 이번 달 치료 목표: ${monthlyGoal}` : ""}
+      - 이번 달 치료 목표: ${effectiveGoal}
       
       [시스템 지침]
       1. 핵심 임무: 학생의 정보를 바탕으로 공식 문서에 들어갈 '치료 내용', '아동 반응', '월 치료 목표'를 창작한다.
-      2. 컨텍스트 매핑: ${monthlyGoal ? `반드시 전달받은 '이번 달 치료 목표(${monthlyGoal})'를 달성하기 위한 구체적인 활동으로 '치료 내용'을 작성하고, 그 목표에 부합하는 관찰 결과로 '아동 반응'을 작성해야 한다.` : "해당 월의 목표에 부합하는 전문적인 치료 내용과 반응을 작성한다."}
+      2. 컨텍스트 매핑 (절대 규칙): 
+         - 반드시 전달받은 '이번 달 치료 목표(${effectiveGoal})'를 달성하기 위한 구체적인 치료 프로그램을 '치료 내용'으로 작성해라.
+         - 해당 목표의 성취도와 부합하는 임상적 관찰 결과를 '아동 반응'으로 작성해라.
+         - 만약 목표가 '연간계획서에 목표가 설정되지 않았습니다.'라면, 일반적인 영역별 기초 활동을 작성하되 목표 칸에는 해당 문구를 그대로 유지해라.
       3. 문체 및 어조: 주관적인 감정 표현은 철저히 배제하고, 객관적이고 임상적인 행동 관찰 위주로 서술한다.
       4. 종결어미: 모든 문장의 끝은 반드시 "-함", "-보임", "-관찰됨", "-향상됨", "-강화됨" 형태의 명사형으로 끝맺는다.
       5. 데이터 기반 매핑: 제공된 '결제 일자' 각 행마다 빈칸 없이 전문적인 내용을 작성한다.
       
-      [월간일지 작성 샘플 - 이 문체와 구조를 완벽하게 모방할 것]
+      [논리적 일치 예시 (Few-shot)]
+      - 목표가 "정서 표현의 다양화"인 경우:
+        * 치료내용: "오늘 내 마음의 날씨 그리기, 감정 카드 게임을 통한 감정 변별 활동 실시함"
+        * 아동반응: "다양한 감정 어휘 사용 빈도가 향상됨, 자신의 기분을 날씨에 비유하여 적절히 표현함"
+      
+      [월간일지 작성 샘플]
       - (미술/심리 치료내용) "내면 표현 감정 조절, 속마음 상자 꾸미기 상자 안에 감정 담기"
       - (미술/심리 아동반응) "다른 사람에게 보여주고 싶은 속마음, 나만 알고 싶은 마음을 적절히 구분하여 표현함"
-      - (언어 치료내용) "상황 카드 보고 적절한 어휘 선택 및 역할극 진행"
-      - (언어 아동반응) "화용 언어 능력 및 자발적 발화 빈도가 증가함"
       
       [응답 구조]
       {
         "currentLevel": "현행 수준 요약",
-        "monthlyGoal": "${monthlyGoal || `${month}월 치료 목표`}",
+        "monthlyGoal": "${effectiveGoal}",
         "sessions": [
           { "date": "YYYY-MM-DD", "content": "치료 내용", "reaction": "아동 반응", "consultation": "가정 내 연계 활동 안내" }
         ],

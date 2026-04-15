@@ -485,13 +485,15 @@ export default function App() {
       const baseContent = contents[i % contents.length];
       const baseReaction = mockReactions[i % mockReactions.length];
       
+      const hasGoal = monthlyGoal && monthlyGoal !== "연간계획서에 목표가 설정되지 않았습니다.";
+      
       // If monthlyGoal is provided, try to blend it in
-      const content = monthlyGoal 
-        ? `${monthlyGoal.replace(/[함임다.]$/, "")} 목표 달성을 위해 ${baseContent}`
+      const content = hasGoal 
+        ? `${monthlyGoal!.replace(/[함임다.]$/, "")} 목표 달성을 위해 ${baseContent}`
         : baseContent;
         
-      const reaction = monthlyGoal
-        ? `${monthlyGoal.replace(/[함임다.]$/, "")} 과정에서 ${baseReaction}`
+      const reaction = hasGoal
+        ? `${monthlyGoal!.replace(/[함임다.]$/, "")} 과정에서 ${baseReaction}`
         : baseReaction;
 
       return {
@@ -559,7 +561,7 @@ export default function App() {
         annual = await generateAnnualPlan(student);
         
         // 2. Extract the goal for the selected month
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
         
         // 3. Generate Monthly Journal using the extracted goal
         if (filteredDates.length > 0) {
@@ -567,7 +569,7 @@ export default function App() {
         } else {
           monthly = {
             currentLevel: "해당 월의 치료 내역이 없습니다.",
-            monthlyGoal: monthlyGoal || `${selectedMonth}월 치료 목표`,
+            monthlyGoal: monthlyGoal,
             sessions: [],
             result: "내역 없음"
           };
@@ -585,10 +587,10 @@ export default function App() {
           }))
         };
         
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
         monthly = {
           currentLevel: "현재 치료 목표에 따른 활동을 수행 중임.",
-          monthlyGoal: monthlyGoal || `${selectedMonth}월 치료 목표 달성 시도`,
+          monthlyGoal: monthlyGoal,
           sessions: generateMockSessions(filteredDates, student.treatmentArea, monthlyGoal),
           result: "긍정적인 변화가 관찰되며 지속적인 지도가 필요함."
         };
@@ -600,7 +602,7 @@ export default function App() {
 
       // Ensure all filtered dates are present in sessions even if AI missed some
       if (monthly && monthly.sessions) {
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
         const sessionDates = new Set(monthly.sessions.map(s => s.date));
         const missingDates = filteredDates.filter(d => !sessionDates.has(d));
         
