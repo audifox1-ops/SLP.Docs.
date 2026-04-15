@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -50,6 +50,7 @@ export default function App() {
   // Student Info Management State
   const [studentInfos, setStudentInfos] = useState<StudentInfo[]>([]);
   const [allPaymentRecords, setAllPaymentRecords] = useState<PaymentRecord[]>([]);
+  const hasInitialLoaded = useRef(false);
   
   // Student List State
   const [fullStudentList, setFullStudentList] = useState<string[]>([]);
@@ -67,6 +68,19 @@ export default function App() {
     const unsubPayments = onSnapshot(qPayments, (snapshot) => {
       const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentRecord));
       setAllPaymentRecords(records);
+      
+      // Auto-Load Notification
+      if (!hasInitialLoaded.current && records.length > 0) {
+        setUploadStatus({ 
+          type: 'success', 
+          message: `기존 치료/결제 내역 ${records.length}건을 불러왔습니다.` 
+        });
+        hasInitialLoaded.current = true;
+        setTimeout(() => setUploadStatus(null), 4000);
+      } else if (!hasInitialLoaded.current && snapshot.metadata.fromCache === false) {
+        // Even if 0 records, mark as loaded once we get a fresh response
+        hasInitialLoaded.current = true;
+      }
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'payment_records'));
 
     return () => {
@@ -204,6 +218,35 @@ export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleResetAllData = async () => {
+    if (!window.confirm("정말 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
+    
+    setIsLoading(true);
+    try {
+      const q = collection(db, 'payment_records');
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        setUploadStatus({ type: 'error', message: '삭제할 데이터가 없습니다.' });
+        return;
+      }
+
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      setUploadStatus({ type: 'success', message: '모든 데이터가 초기화되었습니다.' });
+    } catch (err) {
+      console.error("Reset failed:", err);
+      setUploadStatus({ type: 'error', message: '데이터 초기화 중 오류가 발생했습니다.' });
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 3000);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -487,42 +530,40 @@ export default function App() {
   const generateMockSessions = (dates: string[], treatmentArea: string, monthlyGoal?: string) => {
     const mockContents: Record<string, string[]> = {
       '언어치료': [
-        "상황 카드 보고 적절한 어휘 선택 및 역할극 진행함.",
-        "조음 기관의 운동성 향상을 위한 구강 체조 실시함.",
-        "자발화에서의 명료도 향상을 위한 문장 읽기 연습함.",
-        "어휘력 확장을 위한 주제별 단어 카드 분류 활동함.",
-        "상황에 적절한 의사소통 전략 사용하기 연습함.",
-        "청각적 기억력 향상을 위한 단어 나열 듣고 따라하기함."
+        "조음점 지시법을 활용한 'ㅅ' 음소 산출 유도 및 반복 훈련 실시함.",
+        "상황 카드 제시를 통한 화용적 의사소통 전략 모델링 및 역할극 수행함.",
+        "언어적 촉구(Prompting)를 활용한 2어조합 문장 산출 유도함.",
+        "시각적 비계(Scaffolding)를 제공하여 이야기 순서 나열 및 설명하기 활동함.",
+        "자발화에서의 명료도 향상을 위한 피드백 제공 및 수정 발화 유도함.",
+        "청각적 변별력 강화를 위한 유사 음소 대조 및 듣기 활동 실시함."
       ],
       '미술치료': [
-        "가족 이름 쓰기 + 가족 놀이 상황 표현 활동함.",
-        "가족의 하루 그리기 활동 실시함.",
-        "가족에게 하고 싶은 말 말풍선 만들기 작업함.",
-        "가족 상징 만들기 (문장, 문양, 색 등으로) 공동작품 구성함.",
-        "내면 표현 감정 조절, 속마음 상자 꾸미기 상자 안에 감정 담기 활동함.",
-        "자아존중감 강화, 새해 계획 내가 바라는 모습 그리기 실시함.",
-        "자유화를 통한 현재의 감정 상태 탐색 및 표출함.",
-        "점토 활동을 통한 소근육 발달 및 촉각 자극 제공함."
+        "이완 훈련을 위한 점토 탐색 및 자유로운 형태 만들기 활동함.",
+        "내면 감정 표출을 위한 '감정 온도계' 그리기 및 색채 심리 활동함.",
+        "자아 정체성 확립을 위한 '나의 강점 나무' 꾸미기 및 콜라주 작업함.",
+        "사회성 기술 향상을 위한 협동화 그리기 및 역할 분담 활동 실시함.",
+        "정서적 안정을 위한 만다라 채색 및 호흡 조절 연습함.",
+        "문제 해결 능력 배양을 위한 입체 구조물 만들기 및 계획 세우기 활동함."
       ],
       'default': [
-        "기초 학습 능력 향상을 위한 인지 활동 실시함.",
-        "주의 집중력 유지를 위한 과제 수행 연습함.",
-        "대인 관계 기술 습득을 위한 역할극 수행함.",
-        "정서적 안정을 위한 이완 훈련 및 호흡법 연습함.",
-        "일상생활 적응 능력 향상을 위한 모의 상황 연습함."
+        "주의 집중력 유지를 위한 과제 수행 및 정적 강화 제공함.",
+        "기초 학습 능력 향상을 위한 인지 자극 활동 및 반복 학습 실시함.",
+        "일상생활 적응을 위한 모의 상황 연습 및 모델링 제공함.",
+        "정서 조절을 위한 이완 기법 습득 및 자기 진정 활동 수행함.",
+        "대인 관계 기술 향상을 위한 그룹 게임 및 규칙 준수 연습함."
       ]
     };
 
     const mockReactions: string[] = [
-      "화용 언어 능력 및 자발적 발화 빈도가 증가함.",
-      "다른 사람에게 보여주고 싶은 속마음, 나만 알고 싶은 마음을 적절히 구분하여 표현함.",
-      "가족 이름을 하나하나 부르며 놀이 장면 구성해서 표현해봄.",
-      "할머니와 장난감 놀이 장면 그리며 웃음 표현함.",
-      "아침부터 저녁까지 가족의 하루 일과를 장면별로 표현해봄.",
-      "'아빠는 아침에 출근해요' 등 문장 표현 시도하려고 함.",
-      "'엄마 사랑해요' 말풍선 직접 쓰는 모습보임.",
-      "활동에 적극적으로 참여하며 즐거워하는 모습을 보임.",
-      "과제 수행 시 성취감을 느끼며 자신감 있는 태도를 보임."
+      "목표 음소 산출 시 조음점 위치를 스스로 수정하려는 시도가 관찰됨.",
+      "치료사의 모델링에 주의를 집중하며 자발적인 모방 발화 빈도가 증가함.",
+      "과제 수행 중 어려움이 발생했을 때 적절한 도움을 요청하는 모습보임.",
+      "자신의 감정을 어휘로 구체화하여 표현하려는 태도 변화가 나타남.",
+      "활동에 대한 흥미도가 높으며 과제 완수 후 성취감을 표현함.",
+      "비언어적 의사소통(시선 접촉, 미소)이 이전 회기 대비 자연스러워짐.",
+      "규칙이 있는 활동에서 순서를 기다리며 자기 조절 능력을 유지함.",
+      "새로운 매체 탐색 시 조심스러운 태도를 보였으나 점차 적극적으로 참여함.",
+      "학습된 기술을 다른 상황에 적용해 보려는 일반화 시도가 관찰됨."
     ];
 
     const area = mockContents[treatmentArea] ? treatmentArea : 'default';
@@ -1263,6 +1304,16 @@ export default function App() {
                     </div>
                   )}
                 </AnimatePresence>
+              </div>
+
+              <div className="p-4 border-t border-border-theme bg-bg-theme/10">
+                <button
+                  onClick={handleResetAllData}
+                  className="w-full flex items-center justify-center gap-2 py-2 text-[11px] font-bold text-red-500 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  저장된 전체 내역 초기화
+                </button>
               </div>
             </aside>
 
