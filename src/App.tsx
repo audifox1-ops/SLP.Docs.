@@ -175,6 +175,12 @@ export default function App() {
     }
   };
 
+  const handleGenerateFromManagement = (name: string) => {
+    setIsDataLoaded(true);
+    setCurrentView('docs');
+    handleStudentSelect(name);
+  };
+
   const handleAutoRegister = async (name: string) => {
     if (studentInfos.some(s => s.name === name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생입니다.' });
@@ -1124,6 +1130,7 @@ export default function App() {
             onAdd={handleAddStudentInfo}
             onUpdate={handleUpdateStudentInfo}
             onDelete={handleDeleteStudentInfo}
+            onGenerateDocument={handleGenerateFromManagement}
           />
         ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">

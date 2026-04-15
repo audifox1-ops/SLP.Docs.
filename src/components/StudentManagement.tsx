@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentInfo } from '../types';
 
@@ -8,9 +8,10 @@ interface Props {
   onAdd: (student: StudentInfo) => void;
   onUpdate: (oldName: string, student: StudentInfo) => void;
   onDelete: (name: string) => void;
+  onGenerateDocument: (name: string) => void;
 }
 
-export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete }) => {
+export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete, onGenerateDocument }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -159,6 +160,14 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                         <span className="font-bold text-primary">{info.therapistName}</span>
                       </div>
                     </div>
+
+                    <button 
+                      onClick={() => onGenerateDocument(info.name)}
+                      className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 bg-primary-light text-primary rounded-xl font-bold text-xs hover:bg-primary hover:text-white transition-all border border-primary/10"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      서류 생성하기
+                    </button>
                   </motion.div>
                 ))}
               </AnimatePresence>
