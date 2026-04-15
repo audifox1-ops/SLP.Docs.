@@ -440,7 +440,7 @@ export default function App() {
   };
 
   // Mock data generator for monthly journal sessions
-  const generateMockSessions = (dates: string[], treatmentArea: string) => {
+  const generateMockSessions = (dates: string[], treatmentArea: string, monthlyGoal?: string) => {
     const mockContents: Record<string, string[]> = {
       '언어치료': [
         "상황 카드 보고 적절한 어휘 선택 및 역할극 진행함.",
@@ -481,12 +481,26 @@ export default function App() {
     const area = mockContents[treatmentArea] ? treatmentArea : 'default';
     const contents = mockContents[area];
 
-    return dates.map((date, i) => ({
-      date,
-      content: contents[i % contents.length],
-      reaction: mockReactions[i % mockReactions.length],
-      consultation: "가정 내에서의 연계 활동 및 지도 방법 안내함."
-    }));
+    return dates.map((date, i) => {
+      const baseContent = contents[i % contents.length];
+      const baseReaction = mockReactions[i % mockReactions.length];
+      
+      // If monthlyGoal is provided, try to blend it in
+      const content = monthlyGoal 
+        ? `${monthlyGoal.replace(/[함임다.]$/, "")} 목표 달성을 위해 ${baseContent}`
+        : baseContent;
+        
+      const reaction = monthlyGoal
+        ? `${monthlyGoal.replace(/[함임다.]$/, "")} 과정에서 ${baseReaction}`
+        : baseReaction;
+
+      return {
+        date,
+        content,
+        reaction,
+        consultation: "가정 내에서의 연계 활동 및 지도 방법 안내함."
+      };
+    });
   };
 
   const fetchData = async (student: Student) => {
@@ -541,17 +555,23 @@ export default function App() {
       let monthly: MonthlyJournalData | null = null;
 
       try {
-        [annual, monthly] = await Promise.all([
-          generateAnnualPlan(student),
-          filteredDates.length > 0 
-            ? generateMonthlyJournal(studentWithFilteredDates, selectedMonth)
-            : Promise.resolve({
-                currentLevel: "해당 월의 치료 내역이 없습니다.",
-                monthlyGoal: `${selectedMonth}월 치료 목표`,
-                sessions: [],
-                result: "내역 없음"
-              } as MonthlyJournalData)
-        ]);
+        // 1. Generate Annual Plan first to get the monthly goal context
+        annual = await generateAnnualPlan(student);
+        
+        // 2. Extract the goal for the selected month
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
+        
+        // 3. Generate Monthly Journal using the extracted goal
+        if (filteredDates.length > 0) {
+          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal);
+        } else {
+          monthly = {
+            currentLevel: "해당 월의 치료 내역이 없습니다.",
+            monthlyGoal: monthlyGoal || `${selectedMonth}월 치료 목표`,
+            sessions: [],
+            result: "내역 없음"
+          };
+        }
       } catch (aiError) {
         console.warn("AI generation failed, using mock data:", aiError);
         // Fallback to mock data if AI fails
@@ -565,10 +585,11 @@ export default function App() {
           }))
         };
         
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
         monthly = {
           currentLevel: "현재 치료 목표에 따른 활동을 수행 중임.",
-          monthlyGoal: `${selectedMonth}월 치료 목표 달성 시도`,
-          sessions: generateMockSessions(filteredDates, student.treatmentArea),
+          monthlyGoal: monthlyGoal || `${selectedMonth}월 치료 목표 달성 시도`,
+          sessions: generateMockSessions(filteredDates, student.treatmentArea, monthlyGoal),
           result: "긍정적인 변화가 관찰되며 지속적인 지도가 필요함."
         };
       }
@@ -579,11 +600,12 @@ export default function App() {
 
       // Ensure all filtered dates are present in sessions even if AI missed some
       if (monthly && monthly.sessions) {
+        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
         const sessionDates = new Set(monthly.sessions.map(s => s.date));
         const missingDates = filteredDates.filter(d => !sessionDates.has(d));
         
         if (missingDates.length > 0) {
-          const mockMissing = generateMockSessions(missingDates, student.treatmentArea);
+          const mockMissing = generateMockSessions(missingDates, student.treatmentArea, monthlyGoal);
           monthly.sessions = [...monthly.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
         }
       }
