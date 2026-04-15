@@ -498,13 +498,32 @@ export default function App() {
       // FIX: Ensure we handle various date formats correctly for filtering
       const filteredDates = student.paymentDates.filter(d => {
         try {
-          const dStr = String(d).replace(/\s/g, '');
-          if (!dStr.includes(yearStr)) return false;
-
-          // Check for month match in YYYY-MM-DD or YYYY.MM.DD or YYYY/MM/DD
-          const parts = dStr.split(/[-./]/);
-          // Usually [YYYY, MM, DD] or [MM, DD, YYYY]
-          return parts.some(p => p === monthStr || p === paddedMonthStr);
+          const dStr = String(d).trim();
+          // Match YYYY or YY followed by separator and then MM or M
+          const match = dStr.match(/(\d{2,4})[-./\s]+(\d{1,2})[-./\s]+(\d{1,2})/);
+          if (match) {
+            const y = match[1];
+            const m = match[2];
+            
+            // Check year (handle 2-digit year if necessary, but usually 4)
+            const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
+            // Check month
+            const monthMatch = parseInt(m, 10) === selectedMonth;
+            
+            return yearMatch && monthMatch;
+          }
+          
+          // Fallback for other formats
+          const parts = dStr.split(/[-./\s]+/).filter(Boolean);
+          if (parts.length >= 2) {
+            const y = parts[0];
+            const m = parts[1];
+            const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
+            const monthMatch = parseInt(m, 10) === selectedMonth;
+            return yearMatch && monthMatch;
+          }
+          
+          return false;
         } catch (e) {
           return false;
         }
@@ -563,6 +582,8 @@ export default function App() {
           monthly.sessions = [...monthly.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
         }
       }
+      
+      console.log("월별일지 전달 데이터:", monthly?.sessions);
       
       setAnnualData(annual);
       setMonthlyData(monthly);

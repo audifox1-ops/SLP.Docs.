@@ -109,16 +109,24 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
           </tr>
         </thead>
         <tbody>
-          {data.sessions.map((session, idx) => (
-            <tr key={idx} className="h-20">
-              <td className="border border-black p-2 text-center font-bold">{session.date}</td>
-              <td className="border border-black p-2 leading-relaxed">{session.content}</td>
-              <td className="border border-black p-2 leading-relaxed">{session.reaction}</td>
-              <td className="border border-black p-2 text-[0.7rem]">{session.consultation}</td>
+          {data.sessions.length > 0 ? (
+            data.sessions.map((session, idx) => (
+              <tr key={idx} className="h-20">
+                <td className="border border-black p-2 text-center font-bold">{session.date}</td>
+                <td className="border border-black p-2 leading-relaxed">{session.content}</td>
+                <td className="border border-black p-2 leading-relaxed">{session.reaction}</td>
+                <td className="border border-black p-2 text-[0.7rem]">{session.consultation}</td>
+              </tr>
+            ))
+          ) : (
+            <tr className="h-40">
+              <td colSpan={4} className="border border-black p-4 text-center text-slate-400 font-bold text-lg">
+                해당 월의 치료 내역이 없습니다.
+              </td>
             </tr>
-          ))}
+          )}
           {/* Fill empty rows if needed to maintain layout consistency */}
-          {data.sessions.length < 4 && Array.from({ length: 4 - data.sessions.length }).map((_, i) => (
+          {data.sessions.length > 0 && data.sessions.length < 4 && Array.from({ length: 4 - data.sessions.length }).map((_, i) => (
             <tr key={`empty-${i}`} className="h-20">
               <td className="border border-black p-2"></td>
               <td className="border border-black p-2"></td>
