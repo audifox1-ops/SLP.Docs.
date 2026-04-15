@@ -1,3 +1,12 @@
+export interface PaymentRecord {
+  id?: string;
+  studentName: string;
+  transactionDate: string;
+  amount: number | string;
+  treatmentArea: string;
+  createdAt: any;
+}
+
 export interface StudentInfo {
   name: string;
   birthDate: string;

@@ -34,6 +34,20 @@
     "/students/{studentId}": {
       "schema": "Student",
       "description": "Collection of students"
+    },
+    "/payment_records/{recordId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "studentName": { "type": "string" },
+          "transactionDate": { "type": "string" },
+          "amount": { "type": ["number", "string"] },
+          "treatmentArea": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["studentName", "transactionDate", "amount", "treatmentArea"]
+      },
+      "description": "Collection of payment records from uploaded files"
     }
   }
 }

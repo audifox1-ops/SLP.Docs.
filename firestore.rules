@@ -1,38 +1,102 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: students
+// Document ID: {studentId} (usually student name or unique ID)
+// Fields:
+//   - name: string (required)
+//   - birthDate: string (required)
+//   - school: string (required)
+//   - disabilityType: string
+//   - treatmentArea: string (required)
+//   - therapistName: string
+//   - schedule: map { day: string, time: string, frequency: string }
+//   - startDate: string
+//   - paymentDates: array of strings
+//
+// Collection: payment_records
+// Document ID: auto-generated
+// Fields:
+//   - studentName: string (required)
+//   - transactionDate: string (required)
+//   - amount: number | string (required)
+//   - treatmentArea: string (required)
+//   - createdAt: timestamp (required)
+//
+// ===============================================================
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
     // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    // Collection: students
-    // Fields:
-    //   - name: string (required)
-    //   - birthDate: string (required)
-    //   - school: string (required)
-    //   - disabilityType: string
-    //   - treatmentArea: string (required)
-    //   - schedule: map { day: string, time: string, frequency: string }
-    //   - startDate: string
-    //   - therapistName: string
-    //   - voucherArea: string
-    //   - paymentDates: list<string>
-    // ===============================================================
-
     // Helper Functions
+    // ===============================================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "audifox1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
 
     function isValidStudent(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.birthDate is string && data.birthDate.size() > 0 &&
-             data.school is string && data.school.size() > 0 &&
-             data.treatmentArea is string && data.treatmentArea.size() > 0;
+             data.birthDate is string && data.birthDate.size() < 20 &&
+             data.school is string && data.school.size() < 100 &&
+             data.treatmentArea is string && data.treatmentArea.size() < 100;
     }
 
+    function isValidPaymentRecord(data) {
+      return data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.transactionDate is string && data.transactionDate.size() > 0 && data.transactionDate.size() < 50 &&
+             data.treatmentArea is string && data.treatmentArea.size() < 100 &&
+             (data.amount is number || data.amount is string) &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // WARNING: Authentication is disabled. Anyone with your project ID can read/write data.
+    // In a production app, you should re-enable Auth and restrict these rules.
+
+    // Students collection
     match /students/{studentId} {
-      // Allowing public access as requested for a private, limited-user app
-      allow read, write: if true;
+      allow read, create, update: if true;
+      allow delete: if true;
+    }
+
+    // Payment Records collection
+    match /payment_records/{recordId} {
+      allow read, create: if true;
+      allow update, delete: if true;
+    }
+    
+    // Test connection path
+    match /test/connection {
+      allow read: if true;
     }
   }
 }

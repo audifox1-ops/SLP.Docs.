@@ -3,11 +3,26 @@ import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpr
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo } from './types';
+import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord } from './types';
 import { generateAnnualPlan, generateMonthlyJournal } from './services/aiService';
 import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
 import { StudentManagement } from './components/StudentManagement';
+import { db, OperationType, handleFirestoreError } from './firebase';
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  query, 
+  where, 
+  serverTimestamp, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  updateDoc,
+  writeBatch
+} from 'firebase/firestore';
 
 interface RawRecord {
   '학생이름': string;
@@ -33,27 +48,72 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
   
   // Student Info Management State
-  const [studentInfos, setStudentInfos] = useState<StudentInfo[]>(() => {
-    const saved = localStorage.getItem('studentMasterData');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [studentInfos, setStudentInfos] = useState<StudentInfo[]>([]);
+  const [allPaymentRecords, setAllPaymentRecords] = useState<PaymentRecord[]>([]);
 
+  // Firestore Listeners
   useEffect(() => {
-    localStorage.setItem('studentMasterData', JSON.stringify(studentInfos));
-  }, [studentInfos]);
+    const qStudents = collection(db, 'students');
+    const unsubStudents = onSnapshot(qStudents, (snapshot) => {
+      const infos = snapshot.docs.map(doc => doc.data() as StudentInfo);
+      setStudentInfos(infos);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'students'));
 
-  const handleAddStudentInfo = (info: StudentInfo) => {
+    const qPayments = collection(db, 'payment_records');
+    const unsubPayments = onSnapshot(qPayments, (snapshot) => {
+      const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentRecord));
+      setAllPaymentRecords(records);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'payment_records'));
+
+    return () => {
+      unsubStudents();
+      unsubPayments();
+    };
+  }, []);
+
+  const handleAddStudentInfo = async (info: StudentInfo) => {
     if (studentInfos.some(s => s.name === info.name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
       setTimeout(() => setUploadStatus(null), 3000);
       return;
     }
-    setStudentInfos([...studentInfos, info]);
-    setUploadStatus({ type: 'success', message: '학생 정보가 등록되었습니다.' });
+    try {
+      await setDoc(doc(db, 'students', info.name), info);
+      setUploadStatus({ type: 'success', message: '학생 정보가 등록되었습니다.' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'students');
+    }
     setTimeout(() => setUploadStatus(null), 3000);
   };
 
-  const handleAutoRegister = (name: string) => {
+  const handleUpdateStudentInfo = async (oldName: string, info: StudentInfo) => {
+    try {
+      if (oldName !== info.name) {
+        await deleteDoc(doc(db, 'students', oldName));
+        await setDoc(doc(db, 'students', info.name), info);
+      } else {
+        await setDoc(doc(db, 'students', info.name), info);
+      }
+      setUploadStatus({ type: 'success', message: '학생 정보가 수정되었습니다.' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'students');
+    }
+    setTimeout(() => setUploadStatus(null), 3000);
+  };
+
+  const handleDeleteStudentInfo = async (name: string) => {
+    if (window.confirm(`${name} 학생의 정보를 삭제하시겠습니까?`)) {
+      try {
+        await deleteDoc(doc(db, 'students', name));
+        setUploadStatus({ type: 'success', message: '학생 정보가 삭제되었습니다.' });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, 'students');
+      }
+      setTimeout(() => setUploadStatus(null), 3000);
+    }
+  };
+
+  const handleAutoRegister = async (name: string) => {
     if (studentInfos.some(s => s.name === name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생입니다.' });
       setTimeout(() => setUploadStatus(null), 3000);
@@ -78,26 +138,16 @@ export default function App() {
         therapistName: String(first['치료사명'] || first['치료사'] || first['담당자'] || first['재활사'] || '')
       };
 
-      setStudentInfos([...studentInfos, newInfo]);
-      setUploadStatus({ 
-        type: 'success', 
-        message: '학생 정보가 등록되었습니다. [학생 정보 관리] 탭에서 나머지 정보를 수정해 주세요.' 
-      });
+      try {
+        await setDoc(doc(db, 'students', name), newInfo);
+        setUploadStatus({ 
+          type: 'success', 
+          message: '학생 정보가 등록되었습니다. [학생 정보 관리] 탭에서 나머지 정보를 수정해 주세요.' 
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, 'students');
+      }
       setTimeout(() => setUploadStatus(null), 5000);
-    }
-  };
-
-  const handleUpdateStudentInfo = (oldName: string, info: StudentInfo) => {
-    setStudentInfos(studentInfos.map(s => s.name === oldName ? info : s));
-    setUploadStatus({ type: 'success', message: '학생 정보가 수정되었습니다.' });
-    setTimeout(() => setUploadStatus(null), 3000);
-  };
-
-  const handleDeleteStudentInfo = (name: string) => {
-    if (window.confirm(`${name} 학생의 정보를 삭제하시겠습니까?`)) {
-      setStudentInfos(studentInfos.filter(s => s.name !== name));
-      setUploadStatus({ type: 'success', message: '학생 정보가 삭제되었습니다.' });
-      setTimeout(() => setUploadStatus(null), 3000);
     }
   };
 
@@ -199,6 +249,9 @@ export default function App() {
               return;
             }
 
+            // Firebase Save with Duplicate Check
+            saveRecordsToFirebase(processed);
+
             const names = Array.from(new Set(processed.map(r => 
               String(r['학생이름'] || r['학생 이름'] || r['이름'] || r['성명'] || r['성함'] || r['대상자'] || r['대상자명'] || '').trim()
             ))).filter(Boolean);
@@ -260,12 +313,74 @@ export default function App() {
       }
     };
 
+  const saveRecordsToFirebase = async (records: RawRecord[]) => {
+    setIsLoading(true);
+    let addedCount = 0;
+    let duplicateCount = 0;
+
+    try {
+      // Use a batch for efficiency
+      const batch = writeBatch(db);
+      
+      for (const record of records) {
+        const name = String(record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || '').trim();
+        const date = String(record['거래일자'] || record['거래 일자'] || record['날짜'] || record['결제일'] || record['결제 일자'] || record['일자'] || record['Date'] || record['거래일'] || '').trim();
+        const amount = record['금액'] || 0;
+        const area = String(record['지원영역'] || record['지원 영역'] || record['치료영역'] || record['영역'] || record['서비스'] || '언어치료').trim();
+
+        // Duplicate Check: name + date + amount + area
+        const isDuplicate = allPaymentRecords.some(r => 
+          r.studentName === name && 
+          r.transactionDate === date && 
+          String(r.amount) === String(amount) && 
+          r.treatmentArea === area
+        );
+
+        if (isDuplicate) {
+          duplicateCount++;
+          continue;
+        }
+
+        const newRecordRef = doc(collection(db, 'payment_records'));
+        batch.set(newRecordRef, {
+          studentName: name,
+          transactionDate: date,
+          amount: amount,
+          treatmentArea: area,
+          createdAt: serverTimestamp()
+        });
+        addedCount++;
+      }
+
+      if (addedCount > 0) {
+        await batch.commit();
+      }
+
+      setUploadStatus({ 
+        type: 'success', 
+        message: `총 ${addedCount}건이 업로드되었으며, ${duplicateCount}건의 중복 데이터는 제외되었습니다.` 
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'payment_records');
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
   useEffect(() => {
     const term = searchTerm.toLowerCase();
+    // Use student names from payment records if available, otherwise from studentInfos
+    const allNames = Array.from(new Set([
+      ...allPaymentRecords.map(r => r.studentName),
+      ...studentInfos.map(s => s.name)
+    ]));
+    
+    setUniqueStudents(allNames);
     setFilteredStudents(
-      uniqueStudents.filter(name => name.toLowerCase().includes(term))
+      allNames.filter(name => name.toLowerCase().includes(term))
     );
-  }, [searchTerm, uniqueStudents]);
+  }, [searchTerm, allPaymentRecords, studentInfos]);
 
   const handleStudentSelect = async (name: string) => {
     // Reset previous state
@@ -273,54 +388,45 @@ export default function App() {
     setAnnualData(null);
     setMonthlyData(null);
 
-    const studentRecords = rawRecords.filter(r => {
-      const rName = String(
-        r['학생이름'] || r['학생 이름'] || r['이름'] || r['성명'] || r['성함'] || r['대상자'] || r['대상자명'] || ''
-      ).trim();
-      return rName === name;
-    });
+    // Get records from Firestore state
+    const studentRecords = allPaymentRecords.filter(r => r.studentName === name);
     
-    if (studentRecords.length > 0) {
-      const first = studentRecords[0];
-      
-      // Look up student info in management system
-      const info = studentInfos.find(s => s.name === name);
-      
-      if (!info) {
-        setUploadStatus({ 
-          type: 'error', 
-          message: `'${name}' 학생의 기본 정보가 없습니다. [학생 정보 관리] 메뉴에서 먼저 정보를 등록해 주세요.` 
-        });
-        setTimeout(() => setUploadStatus(null), 5000);
-        return;
-      }
-
-      const paymentDates = studentRecords
-        .map(r => r['거래일자'] || r['거래 일자'] || r['날짜'] || r['결제일'] || r['결제 일자'] || r['일자'] || r['Date'] || r['거래일'])
-        .filter(Boolean)
-        .map(d => String(d))
-        .sort();
-
-      const student: Student = {
-        id: name,
-        name: name,
-        birthDate: info.birthDate,
-        school: info.school,
-        disabilityType: info.disabilityType,
-        treatmentArea: info.treatmentArea,
-        schedule: {
-          day: '정보 없음',
-          time: '정보 없음',
-          frequency: '1'
-        },
-        startDate: `${selectedYear}.03`,
-        therapistName: info.therapistName,
-        paymentDates: paymentDates
-      };
-
-      setSelectedStudent(student);
-      await fetchData(student);
+    // Look up student info in management system
+    const info = studentInfos.find(s => s.name === name);
+    
+    if (!info) {
+      setUploadStatus({ 
+        type: 'error', 
+        message: `'${name}' 학생의 기본 정보가 없습니다. [학생 정보 관리] 메뉴에서 먼저 정보를 등록해 주세요.` 
+      });
+      setTimeout(() => setUploadStatus(null), 5000);
+      return;
     }
+
+    const paymentDates = studentRecords
+      .map(r => r.transactionDate)
+      .filter(Boolean)
+      .sort();
+
+    const student: Student = {
+      id: name,
+      name: name,
+      birthDate: info.birthDate,
+      school: info.school,
+      disabilityType: info.disabilityType,
+      treatmentArea: info.treatmentArea,
+      schedule: {
+        day: '정보 없음',
+        time: '정보 없음',
+        frequency: '1'
+      },
+      startDate: `${selectedYear}.03`,
+      therapistName: info.therapistName,
+      paymentDates: paymentDates
+    };
+
+    setSelectedStudent(student);
+    await fetchData(student);
   };
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -328,66 +434,14 @@ export default function App() {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return;
 
-    // Reset previous state
-    setSelectedStudent(null);
-    setAnnualData(null);
-    setMonthlyData(null);
-
-    const studentRecords = rawRecords.filter(r => {
-      const name = String(
-        r['학생이름'] || r['학생 이름'] || r['이름'] || r['성명'] || r['성함'] || r['대상자'] || r['대상자명'] || ''
-      ).toLowerCase();
-      return name.includes(term);
-    });
-    
-    if (studentRecords.length > 0) {
-      const first = studentRecords[0];
-      const name = String(first['학생이름'] || first['학생 이름'] || first['이름'] || first['성명'] || first['성함'] || first['대상자']);
-      
-      // Look up student info in management system
-      const info = studentInfos.find(s => s.name === name);
-      
-      if (!info) {
-        setUploadStatus({ 
-          type: 'error', 
-          message: `'${name}' 학생의 기본 정보가 없습니다. [학생 정보 관리] 메뉴에서 먼저 정보를 등록해 주세요.` 
-        });
-        setTimeout(() => setUploadStatus(null), 5000);
-        return;
-      }
-
-      // Group payment dates by month
-      const paymentDates = studentRecords
-        .map(r => r['거래일자'] || r['거래 일자'] || r['날짜'] || r['결제일'] || r['결제 일자'] || r['일자'] || r['Date'] || r['거래일'])
-        .filter(Boolean)
-        .map(d => String(d))
-        .sort();
-
-      const student: Student = {
-        id: name,
-        name: name,
-        birthDate: info.birthDate,
-        school: info.school,
-        disabilityType: info.disabilityType,
-        treatmentArea: info.treatmentArea,
-        schedule: {
-          day: '정보 없음',
-          time: '정보 없음',
-          frequency: '1'
-        },
-        startDate: `${selectedYear}.03`,
-        therapistName: info.therapistName,
-        paymentDates: paymentDates
-      };
-
-      setSelectedStudent(student);
-      await fetchData(student);
+    const name = uniqueStudents.find(n => n.toLowerCase().includes(term));
+    if (name) {
+      handleStudentSelect(name);
     } else {
       setUploadStatus({ 
         type: 'error', 
-        message: `'${searchTerm}' 학생을 찾을 수 없습니다. 엑셀의 컬럼명(학생이름, 거래일자 등)을 확인해 주세요.` 
+        message: `'${searchTerm}' 학생을 찾을 수 없습니다.` 
       });
-      // Auto-clear error after 5 seconds
       setTimeout(() => setUploadStatus(null), 5000);
     }
   };
@@ -403,23 +457,15 @@ export default function App() {
       const monthStr = selectedMonth.toString();
       const paddedMonthStr = monthStr.padStart(2, '0');
       
+      // FIX: Ensure we handle various date formats correctly for filtering
       const filteredDates = student.paymentDates.filter(d => {
         const dStr = String(d).replace(/\s/g, '');
-        // Check if the date string contains the selected year
-        const hasYear = dStr.includes(yearStr);
-        if (!hasYear) return false;
+        if (!dStr.includes(yearStr)) return false;
 
-        // Matches YYYY-MM-DD, YYYY.MM.DD, MM/DD/YYYY, etc.
-        return (
-          dStr.includes(`-${paddedMonthStr}-`) || 
-          dStr.includes(`.${paddedMonthStr}.`) || 
-          dStr.includes(`/${paddedMonthStr}/`) ||
-          dStr.includes(`-${monthStr}-`) ||
-          dStr.includes(`.${monthStr}.`) ||
-          dStr.includes(`/${monthStr}/`) ||
-          (dStr.startsWith(paddedMonthStr) && (dStr[2] === '/' || dStr[2] === '.' || dStr[2] === '-')) ||
-          (dStr.startsWith(monthStr) && (dStr[1] === '/' || dStr[1] === '.' || dStr[1] === '-'))
-        );
+        // Check for month match in YYYY-MM-DD or YYYY.MM.DD or YYYY/MM/DD
+        const parts = dStr.split(/[-./]/);
+        // Usually [YYYY, MM, DD] or [MM, DD, YYYY]
+        return parts.some(p => p === monthStr || p === paddedMonthStr);
       });
 
       const studentWithFilteredDates = { ...student, paymentDates: filteredDates };
