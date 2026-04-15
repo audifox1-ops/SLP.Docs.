@@ -1,0 +1,6 @@
+{
+  "name": "SLP.Docs - 언어치료 서류 자동 생성",
+  "description": "언어치료사를 위한 교육청 제출용 연간계획서 및 월간 치료 일지 자동 생성 서비스",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
