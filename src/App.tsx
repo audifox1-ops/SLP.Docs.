@@ -75,6 +75,45 @@ export default function App() {
     };
   }, []);
 
+  // Sync selected student data when studentInfos or allPaymentRecords change
+  useEffect(() => {
+    if (selectedStudent) {
+      const updatedInfo = studentInfos.find(s => s.name === selectedStudent.name);
+      if (updatedInfo) {
+        const studentRecords = allPaymentRecords.filter(r => r.studentName === updatedInfo.name);
+        const paymentDates = studentRecords
+          .map(r => r.transactionDate)
+          .filter(Boolean)
+          .sort();
+
+        setSelectedStudent(prev => {
+          if (!prev) return null;
+          // Only update if data actually changed to avoid unnecessary re-renders
+          if (
+            prev.birthDate === updatedInfo.birthDate &&
+            prev.school === updatedInfo.school &&
+            prev.disabilityType === updatedInfo.disabilityType &&
+            prev.treatmentArea === updatedInfo.treatmentArea &&
+            prev.therapistName === updatedInfo.therapistName &&
+            JSON.stringify(prev.paymentDates) === JSON.stringify(paymentDates)
+          ) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            birthDate: updatedInfo.birthDate,
+            school: updatedInfo.school,
+            disabilityType: updatedInfo.disabilityType,
+            treatmentArea: updatedInfo.treatmentArea,
+            therapistName: updatedInfo.therapistName,
+            paymentDates: paymentDates
+          };
+        });
+      }
+    }
+  }, [studentInfos, allPaymentRecords]);
+
   const handleAddStudentInfo = async (info: StudentInfo) => {
     if (studentInfos.some(s => s.name === info.name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
@@ -95,6 +134,11 @@ export default function App() {
       if (oldName !== info.name) {
         await deleteDoc(doc(db, 'students', oldName));
         await setDoc(doc(db, 'students', info.name), info);
+        
+        // If the selected student's name was changed, update the selected student ID
+        if (selectedStudent && selectedStudent.name === oldName) {
+          setSelectedStudent(prev => prev ? { ...prev, id: info.name, name: info.name } : null);
+        }
       } else {
         await setDoc(doc(db, 'students', info.name), info);
       }
@@ -508,6 +552,42 @@ export default function App() {
     });
   };
 
+  const handleGenerateDraft = async () => {
+    if (!selectedStudent) return;
+    
+    setIsLoading(true);
+    try {
+      // Generate 4 virtual dates for the selected month (e.g., every Wednesday)
+      const virtualDates = [];
+      for (let i = 1; i <= 4; i++) {
+        const day = 7 * i - 3; // Roughly once a week
+        virtualDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+      }
+
+      const studentWithVirtualDates = { ...selectedStudent, paymentDates: virtualDates };
+      
+      // 1. Get goal from existing annual data if available, otherwise generate
+      let currentAnnual = annualData;
+      if (!currentAnnual) {
+        currentAnnual = await generateAnnualPlan(selectedStudent);
+        setAnnualData(currentAnnual);
+      }
+      
+      const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
+      
+      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal);
+      setMonthlyData(monthly);
+      
+      setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
+    } catch (error) {
+      console.error("Draft generation failed:", error);
+      setUploadStatus({ type: 'error', message: '가상 일지 생성 중 오류가 발생했습니다.' });
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 3000);
+    }
+  };
+
   const fetchData = async (student: Student) => {
     setIsLoading(true);
     setAnnualData(null);
@@ -523,8 +603,8 @@ export default function App() {
       const filteredDates = student.paymentDates.filter(d => {
         try {
           const dStr = String(d).trim();
-          // Match YYYY or YY followed by separator and then MM or M
-          const match = dStr.match(/(\d{2,4})[-./\s]+(\d{1,2})[-./\s]+(\d{1,2})/);
+          // Match YYYY or YY followed by separator (including Korean chars) and then MM or M
+          const match = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
           if (match) {
             const y = match[1];
             const m = match[2];
@@ -538,7 +618,7 @@ export default function App() {
           }
           
           // Fallback for other formats
-          const parts = dStr.split(/[-./\s]+/).filter(Boolean);
+          const parts = dStr.split(/[-./\s년월일]+/).filter(Boolean);
           if (parts.length >= 2) {
             const y = parts[0];
             const m = parts[1];
@@ -1275,6 +1355,16 @@ export default function App() {
                         <Printer className="w-4 h-4" />
                         인쇄하기
                       </button>
+
+                      {activeTab === 'monthly' && (!monthlyData || monthlyData.sessions.length === 0) && (
+                        <button 
+                          onClick={handleGenerateDraft}
+                          className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          가상 일지 생성
+                        </button>
+                      )}
                     </div>
                   </div>
 
