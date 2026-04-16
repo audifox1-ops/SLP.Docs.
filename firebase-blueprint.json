@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "Information about a student receiving treatment",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Student's full name" },
+        "birthDate": { "type": "string", "description": "Birth date in YYYY.MM.DD format" },
+        "school": { "type": "string", "description": "School or kindergarten name" },
+        "disabilityType": { "type": "string", "description": "Type of disability" },
+        "treatmentArea": { "type": "string", "description": "Main treatment area" },
+        "schedule": {
+          "type": "object",
+          "properties": {
+            "day": { "type": "string" },
+            "time": { "type": "string" },
+            "frequency": { "type": "string" }
+          }
+        },
+        "startDate": { "type": "string", "description": "Treatment start date in YYYY.MM format" },
+        "therapistName": { "type": "string" },
+        "voucherArea": { "type": "string" },
+        "paymentDates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of payment dates in YYYY-MM-DD format"
+        }
+      },
+      "required": ["name", "birthDate", "school", "treatmentArea"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of students"
+    },
+    "/payment_records/{recordId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "studentName": { "type": "string" },
+          "transactionDate": { "type": "string" },
+          "amount": { "type": ["number", "string"] },
+          "treatmentArea": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["studentName", "transactionDate", "amount", "treatmentArea"]
+      },
+      "description": "Collection of payment records from uploaded files"
+    }
+  }
+}
