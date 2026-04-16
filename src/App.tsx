@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2 } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -637,6 +637,30 @@ export default function App() {
     });
   };
 
+  const handleSaveDocument = async () => {
+    if (!selectedStudent) return;
+    
+    setIsLoading(true);
+    try {
+      if (activeTab === 'annual' && annualData) {
+        // Save Annual Plan
+        await setDoc(doc(db, 'annual_plans', selectedStudent.name), annualData);
+        setUploadStatus({ type: 'success', message: '연간계획서가 성공적으로 저장되었습니다.' });
+      } else if (activeTab === 'monthly' && monthlyData) {
+        // Save Monthly Journal
+        const docId = `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
+        await setDoc(doc(db, 'monthly_journals', docId), monthlyData);
+        setUploadStatus({ type: 'success', message: `${selectedMonth}월 치료일지가 성공적으로 저장되었습니다.` });
+      }
+    } catch (error) {
+      console.error("Save Error:", error);
+      handleFirestoreError(error, OperationType.UPDATE, activeTab === 'annual' ? 'annual_plans' : 'monthly_journals');
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 3000);
+    }
+  };
+
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
     
@@ -720,13 +744,51 @@ export default function App() {
 
       const studentWithFilteredDates = { ...student, paymentDates: filteredDates };
 
+      // 0. Check for existing documents in Firestore first
+      if (activeTab === 'annual') {
+        const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
+        if (annualDoc.exists()) {
+          const savedAnnual = annualDoc.data() as AnnualPlanData;
+          setAnnualData(savedAnnual);
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        const docId = `${student.name}_${selectedYear}_${selectedMonth}`;
+        const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
+        if (monthlyDoc.exists()) {
+          const savedMonthly = monthlyDoc.data() as MonthlyJournalData;
+          setMonthlyData(savedMonthly);
+          
+          // Also try to load annual if not present (needed for goals context)
+          if (!annualData) {
+            const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
+            if (annualDoc.exists()) setAnnualData(annualDoc.data() as AnnualPlanData);
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+      }
+
       // AI Generation with Mock Fallback
       let annual: AnnualPlanData | null = null;
       let monthly: MonthlyJournalData | null = null;
 
       try {
         // 1. Generate Annual Plan first to get the monthly goal context
-        annual = await generateAnnualPlan(student, toneToUse);
+        // Check if annualData exists in state first to avoid redundant AI calls
+        let currentAnnual = annualData;
+        if (!currentAnnual) {
+          const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
+          if (annualDoc.exists()) {
+            currentAnnual = annualDoc.data() as AnnualPlanData;
+          } else {
+            currentAnnual = await generateAnnualPlan(student, toneToUse);
+          }
+          setAnnualData(currentAnnual);
+        }
+        annual = currentAnnual;
         
         // 2. Extract the goal for the selected month
         const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
@@ -1414,6 +1476,19 @@ export default function App() {
                       >
                         <Printer className="w-4 h-4" />
                         인쇄하기
+                      </button>
+
+                      <button 
+                        onClick={handleSaveDocument}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                          (activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData)
+                            ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20'
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
+                        }`}
+                        disabled={!((activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData))}
+                      >
+                        <Save className="w-4 h-4" />
+                        서류 저장
                       </button>
 
                       {activeTab === 'annual' && (
