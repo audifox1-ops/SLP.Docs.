@@ -3,7 +3,7 @@ import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpr
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord } from './types';
+import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord, JournalTone } from './types';
 import { generateAnnualPlan, generateMonthlyJournal } from './services/aiService';
 import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
@@ -48,6 +48,7 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
+  const [journalTone, setJournalTone] = useState<JournalTone>('expert');
   
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
@@ -636,7 +637,7 @@ export default function App() {
     });
   };
 
-  const handleGenerateDraft = async () => {
+  const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
     
     setIsLoading(true);
@@ -659,7 +660,7 @@ export default function App() {
       
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       
-      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal);
+      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal, toneToUse);
       setMonthlyData(monthly);
       
       setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
@@ -672,7 +673,7 @@ export default function App() {
     }
   };
 
-  const fetchData = async (student: Student) => {
+  const fetchData = async (student: Student, toneToUse: JournalTone = journalTone) => {
     setIsLoading(true);
     setAnnualData(null);
     setMonthlyData(null);
@@ -732,7 +733,7 @@ export default function App() {
         
         // 3. Generate Monthly Journal using the extracted goal
         if (filteredDates.length > 0) {
-          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal);
+          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal, toneToUse);
         } else {
           monthly = {
             currentLevel: "해당 월의 치료 내역이 없습니다.",
@@ -793,9 +794,16 @@ export default function App() {
 
   useEffect(() => {
     if (selectedStudent) {
-      fetchData(selectedStudent);
+      fetchData(selectedStudent, journalTone);
     }
   }, [selectedMonth, selectedYear]);
+
+  // Hook for Auto-Generation
+  useEffect(() => {
+    if (activeTab === 'monthly' && selectedStudent && monthlyData && monthlyData.sessions.length === 0 && !isLoading) {
+      handleGenerateDraft();
+    }
+  }, [activeTab, monthlyData, selectedStudent, isLoading]);
 
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   
@@ -1333,6 +1341,26 @@ export default function App() {
                         </button>
                       </div>
 
+                      {/* Tone Setup */}
+                      {activeTab === 'monthly' && (
+                        <div className="flex items-center px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm mr-2">
+                          <label className="text-xs font-bold text-blue-700 mr-2 uppercase tracking-wider">Tone</label>
+                          <select
+                            value={journalTone}
+                            onChange={(e) => {
+                              const newTone = e.target.value as JournalTone;
+                              setJournalTone(newTone);
+                              if (monthlyData) handleGenerateDraft(newTone);
+                            }}
+                            className="bg-transparent text-sm font-bold outline-none cursor-pointer text-slate-800"
+                          >
+                            <option value="normal">일반 임상 모드</option>
+                            <option value="academic">학술 논문 모드</option>
+                            <option value="expert">수석 샘플 모드</option>
+                          </select>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2 px-4 bg-white border border-border-theme rounded-xl h-11 shadow-sm">
                         <Calendar className="w-4 h-4 text-text-muted" />
                         <select 
@@ -1372,9 +1400,25 @@ export default function App() {
                         인쇄하기
                       </button>
 
+                      {activeTab === 'annual' && (
+                        <button 
+                          onClick={() => {
+                            setActiveTab('monthly');
+                            // Because of the auto-generation useEffect listening to activeTab === 'monthly',
+                            // this will automatically trigger handleGenerateDraft if it's empty!
+                            // But if they want to explicitly generate right now, we can call it:
+                            if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
+                          }}
+                          className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          해당 월 일지 생성
+                        </button>
+                      )}
+
                       {activeTab === 'monthly' && (!monthlyData || monthlyData.sessions.length === 0) && (
                         <button 
-                          onClick={handleGenerateDraft}
+                          onClick={() => handleGenerateDraft()}
                           className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
                         >
                           <Sparkles className="w-4 h-4" />

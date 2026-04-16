@@ -1,4 +1,4 @@
-import { Student, AnnualPlanData, MonthlyJournalData } from "../types";
+import { Student, AnnualPlanData, MonthlyJournalData, JournalTone } from "../types";
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
@@ -85,13 +85,32 @@ export async function generateAnnualPlan(student: Student): Promise<AnnualPlanDa
   }
 }
 
-export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal?: string): Promise<MonthlyJournalData> {
+export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal: string, tone: JournalTone = 'normal'): Promise<MonthlyJournalData> {
   const effectiveGoal = monthlyGoal || "연간계획서에 목표가 설정되지 않았습니다.";
   const currentArea = student.monthlyAreas?.[month] || student.treatmentArea;
   
+  let toneInstruction = "";
+  if (tone === 'normal') {
+    toneInstruction = `[문체 옵션: 일반 치료사 모드] 
+자연스럽고 부드러우며 보호자가 이해하기 쉬운 인간적인 어투를 사용하세요. 
+종결어미는 '~했습니다.', '~하는 모습을 보였습니다.', '~할 수 있었습니다.'와 같이 친절하고 존중하는 경어체를 적극 활용하세요.`;
+  } else if (tone === 'academic') {
+    toneInstruction = `[문체 옵션: 극강의 전문/학술 모드] 
+대학병원 임상 보고서나 논문 수준의 매우 전문적이고 객관적인 통계적/학술적 문체를 강제합니다. 
+주관적 감정이나 부사 사용을 철저히 배제하고, 해당 분야의 극단적 고급 전문 용어를 적극적으로 삽입하세요. 
+종결어미는 '~임.', '~함.', '~으로 사료됨.', '~결과를 도출함.'으로 간결하게 작성하세요.`;
+  } else if (tone === 'expert') {
+    toneInstruction = `[문체 옵션: 차윤우/주하준 전문가 샘플 모드] 
+10년 차 수석급 전문가의 날카로운 통찰력과 군더더기 없는 객관성이 바탕이 된 문체입니다. 
+주관적 감정은 배제하되, 행동의 전후 맥락을 인지행동치료/언어재활의 핵심 메커니즘 관점에서 서술하세요. 
+종결어미는 반드시 '-해봄.', '-표현함.', '-시도함.', '-모습보임.', '-관찰됨.', '-나타남.' 등 명사형으로 끊어지게 강제하세요.`;
+  }
+
   try {
     const prompt = `
-      너는 10년 차 1급 전문 언어재활사 및 미술치료사이다. 전달받은 '월 치료 목표'를 바탕으로 아래의 [차윤우 월간일지 샘플]과 완벽하게 동일한 문장 구조, 어조, 명사형 종결어미를 사용하여 치료 내용과 아동 반응을 창작해라.
+      당신은 10년 차 1급 전문 언어재활사 및 미술치료사입니다. 전달받은 '월 치료 목표'를 바탕으로 주어진 [학생 정보]를 활용해 월간 치료 일지를 작성하세요.
+      
+      ${toneInstruction}
       
       [학생 정보]
       - 이름: ${student.name}
@@ -110,8 +129,7 @@ export async function generateMonthlyJournal(student: Student, month: number, mo
          - **반응의 현실성 및 다양성**: 매 회기마다 단순히 "긍정적"이거나 "향상됨"만 반복하지 마라. 치료 과정에서 나타나는 **저항, 거부, 불편함, 좌절감, 흥미 저하** 등 부정적이거나 복합적인 반응을 구체적인 상황과 함께 묘사해라.
          - **상태 변화 묘사**: 탐색, 시도, 저항, 회피, 수용, 숙달 등 아동의 심리적/행동적 변화 과정을 다채롭게 표현해라.
          - **구체적 기법**: 촉구(Prompting), 모델링(Modeling), 비계 설정(Scaffolding), 용암법(Fading), PECS, 사회적 상황 이야기 등 전문적인 치료 기법을 구체적으로 언급해라.
-      4. 전문성 및 어조: 10년 차 전문가로서의 임상적 식견이 드러나는 전문 용어를 사용하고, 주관적 감정은 배제한 채 객관적 사실 위주로 서술한다. 부정적인 행동을 묘사할 때도 "떼를 씀"과 같은 감정적 단어보다는 "지시 따르기에 저항하며 바닥에 눕는 행동을 보임"과 같이 행동 중심으로 서술한다.
-      5. 종결어미: 반드시 "-해봄.", "-표현함.", "-시도함.", "-모습보임.", "-관찰됨.", "-나타남.", "-유지됨." 등 명사형으로 끝맺는다.
+
       
       [현실적인 반응 예시 (Few-shot)]
       - (저항 및 회피): "치료사의 지시를 따르는 데 어려움을 보이며 머뭇거리는 모습보임. 과제 수행을 회피하기 위해 다른 사물에 집착하거나 시선을 돌리는 행동 관찰됨."

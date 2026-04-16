@@ -57,3 +57,5 @@ export interface MonthlyJournalData {
   }[];
   result: string;
 }
+
+export type JournalTone = 'normal' | 'academic' | 'expert';
