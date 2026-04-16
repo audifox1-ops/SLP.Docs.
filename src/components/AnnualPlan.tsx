@@ -84,7 +84,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year }) => {
 
       {/* 현행 수준 */}
       <div className="mb-6 border border-black">
-        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">**[현행 수준 및 특성]**</div>
+        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">현행 수준 및 특성</div>
         <div className="p-3 text-[0.85rem] leading-relaxed min-h-[80px]">
           <ul className="list-disc list-inside space-y-1">
             {data.currentLevel.map((item, idx) => (
@@ -96,7 +96,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year }) => {
 
       {/* 장기 목표 */}
       <div className="mb-6 border border-black">
-        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">**[장기 치료 목표]**</div>
+        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">장기 치료 목표</div>
         <div className="p-3 text-[0.85rem] leading-relaxed min-h-[80px]">
           <ul className="list-disc list-inside space-y-1">
             {data.longTermGoals.map((item, idx) => (
@@ -108,11 +108,12 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year }) => {
 
       {/* 연간 계획 */}
       <div className="border border-black">
-        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">**[연간 치료 계획]**</div>
+        <div className="bg-slate-100 p-2 font-bold border-b border-black text-[0.9rem]">연간 치료 계획</div>
         <table className="w-full border-collapse text-[0.8rem]">
           <thead>
             <tr className="bg-slate-50">
               <th className="border-b border-r border-black p-2 w-12 text-center">월</th>
+              <th className="border-b border-r border-black p-2 w-20 text-center">치료 영역</th>
               <th className="border-b border-r border-black p-2 text-center">단기 목표(월 목표)</th>
               <th className="border-b border-r border-black p-2 text-center">치료 내용</th>
               <th className="border-b border-black p-2 w-16 text-center">비고</th>
@@ -122,6 +123,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year }) => {
             {data.monthlyGoals.map((goal, idx) => (
               <tr key={idx} className="h-10">
                 <td className="border-b border-r border-black p-2 text-center font-bold">{goal.month}월</td>
+                <td className="border-b border-r border-black p-2 text-center text-[0.75rem]">{goal.area || student.monthlyAreas?.[goal.month] || student.treatmentArea}</td>
                 <td className="border-b border-r border-black p-2">{goal.goal}</td>
                 <td className="border-b border-r border-black p-2">{goal.content}</td>
                 <td className="border-b border-black p-2"></td>

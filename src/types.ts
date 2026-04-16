@@ -32,6 +32,7 @@ export interface Student {
   therapistName: string;
   voucherArea?: string;
   paymentDates: string[]; // List of dates for the monthly journal
+  monthlyAreas?: Record<number, string>; // month (1-12) -> area
 }
 
 export interface AnnualPlanData {
@@ -41,6 +42,7 @@ export interface AnnualPlanData {
     month: number;
     goal: string;
     content: string;
+    area?: string;
   }[];
 }
 

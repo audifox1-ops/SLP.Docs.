@@ -51,7 +51,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
             <td className="border border-black p-2 text-center">
               {student.disabilityType}
             </td>
-            <td className="border border-black p-2 text-center font-bold">{student.treatmentArea}</td>
+            <td className="border border-black p-2 text-center font-bold">
+              {student.monthlyAreas?.[month] || student.treatmentArea}
+            </td>
             <td className="border border-black p-0">
               <table className="w-full h-full border-collapse">
                 <tbody className="text-[0.7rem]">

@@ -494,6 +494,16 @@ export default function App() {
       .filter(Boolean)
       .sort();
 
+    const monthlyAreas: Record<number, string> = {};
+    studentRecords.forEach(r => {
+      const dateStr = String(r.transactionDate);
+      const match = dateStr.match(/(\d{4})[-./\s년]+(\d{1,2})/);
+      if (match) {
+        const m = parseInt(match[2]);
+        monthlyAreas[m] = String(r.treatmentArea);
+      }
+    });
+
     const student: Student = {
       id: name,
       name: name,
@@ -508,7 +518,8 @@ export default function App() {
       },
       startDate: `${selectedYear}.03`,
       therapistName: info.therapistName,
-      paymentDates: paymentDates
+      paymentDates: paymentDates,
+      monthlyAreas: monthlyAreas
     };
 
     setSelectedStudent(student);
@@ -893,18 +904,18 @@ export default function App() {
             ],
           }),
           new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "[현행 수준 및 특성]", bold: true })] }),
+          new Paragraph({ children: [new TextRun({ text: "현행 수준 및 특성", bold: true })] }),
           ...annualData.currentLevel.map(text => new Paragraph({ text: `• ${text}`, indent: { left: 240 } })),
           new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "[장기 치료 목표]", bold: true })] }),
+          new Paragraph({ children: [new TextRun({ text: "장기 치료 목표", bold: true })] }),
           ...annualData.longTermGoals.map(text => new Paragraph({ text: `• ${text}`, indent: { left: 240 } })),
           new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "[연간 치료 계획]", bold: true })] }),
+          new Paragraph({ children: [new TextRun({ text: "연간 치료 계획", bold: true })] }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
               new TableRow({
-                children: ['월', '단기 목표', '치료 내용'].map(text => 
+                children: ['월', '치료 영역', '단기 목표', '치료 내용'].map(text => 
                   new TableCell({
                     children: [new Paragraph({ text, alignment: AlignmentType.CENTER })],
                     shading: { fill: "F1F5F9" },
@@ -915,6 +926,7 @@ export default function App() {
               ...annualData.monthlyGoals.map(goal => new TableRow({
                 children: [
                   new TableCell({ children: [new Paragraph({ text: `${goal.month}월`, alignment: AlignmentType.CENTER })], borders }),
+                  new TableCell({ children: [new Paragraph({ text: goal.area || selectedStudent.monthlyAreas?.[goal.month] || selectedStudent.treatmentArea, alignment: AlignmentType.CENTER })], borders }),
                   new TableCell({ children: [new Paragraph({ text: goal.goal })], borders }),
                   new TableCell({ children: [new Paragraph({ text: goal.content })], borders }),
                 ],
@@ -957,7 +969,7 @@ export default function App() {
                   new TableCell({ children: [new Paragraph({ text: selectedStudent.birthDate, alignment: AlignmentType.CENTER })], borders }),
                   new TableCell({ children: [new Paragraph({ text: selectedStudent.school, alignment: AlignmentType.CENTER })], borders }),
                   new TableCell({ children: [new Paragraph({ text: selectedStudent.disabilityType, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.treatmentArea, bold: true })], alignment: AlignmentType.CENTER })], borders }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea, bold: true })], alignment: AlignmentType.CENTER })], borders }),
                   new TableCell({ 
                     children: [
                       new Paragraph({ text: `요일: ${selectedStudent.schedule.day}` }),
