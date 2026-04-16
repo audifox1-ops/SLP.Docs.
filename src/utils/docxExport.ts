@@ -17,7 +17,16 @@ const borders = {
 
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
   return {
-    properties: {},
+    properties: {
+      page: {
+        margin: {
+          top: 1134,
+          right: 1134,
+          bottom: 1134,
+          left: 1134,
+        },
+      },
+    },
     children: [
       new Paragraph({
         alignment: AlignmentType.CENTER,
@@ -100,7 +109,16 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
 
 export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData: MonthlyJournalData, selectedYear: number, selectedMonth: number) => {
   return {
-    properties: {},
+    properties: {
+      page: {
+        margin: {
+          top: 1134,
+          right: 1134,
+          bottom: 1134,
+          left: 1134,
+        },
+      },
+    },
     children: [
       new Paragraph({
         alignment: AlignmentType.CENTER,

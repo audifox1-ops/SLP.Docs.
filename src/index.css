@@ -27,7 +27,7 @@
     }
     @page {
       size: A4 portrait;
-      margin: 15mm;
+      margin: 20mm;
     }
     .document-container {
       box-shadow: none !important;
