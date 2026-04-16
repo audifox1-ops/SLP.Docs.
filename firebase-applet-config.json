@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0159907695",
-  "appId": "1:420938473723:web:41a59d5b4fa8e77696505e",
-  "apiKey": "AIzaSyAPc36awDxHcFuzQTW_sNvbvJTliF48acQ",
-  "authDomain": "gen-lang-client-0159907695.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-f6c3d59c-c8ab-4ba0-973b-32245977679a",
-  "storageBucket": "gen-lang-client-0159907695.firebasestorage.app",
-  "messagingSenderId": "420938473723",
-  "measurementId": ""
+  "projectId": "slp-docs",
+  "appId": "1:862154104562:web:0687ba549edf04dfccfa6b",
+  "apiKey": "AIzaSyAjgLJsTQP31vQzzhx33u-hUOcxld-CwzI",
+  "authDomain": "slp-docs.firebaseapp.com",
+  "databaseURL": "https://slp-docs-default-rtdb.asia-southeast1.firebasedatabase.app",
+  "storageBucket": "slp-docs.firebasestorage.app",
+  "messagingSenderId": "862154104562",
+  "measurementId": "G-C5R82R2XLQ"
 }
