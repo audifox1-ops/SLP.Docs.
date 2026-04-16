@@ -654,7 +654,7 @@ export default function App() {
       // 1. Get goal from existing annual data if available, otherwise generate
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent);
+        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse);
         setAnnualData(currentAnnual);
       }
       
@@ -726,7 +726,7 @@ export default function App() {
 
       try {
         // 1. Generate Annual Plan first to get the monthly goal context
-        annual = await generateAnnualPlan(student);
+        annual = await generateAnnualPlan(student, toneToUse);
         
         // 2. Extract the goal for the selected month
         const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
@@ -1342,24 +1342,40 @@ export default function App() {
                       </div>
 
                       {/* Tone Setup */}
-                      {activeTab === 'monthly' && (
-                        <div className="flex items-center px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm mr-2">
-                          <label className="text-xs font-bold text-blue-700 mr-2 uppercase tracking-wider">Tone</label>
-                          <select
-                            value={journalTone}
-                            onChange={(e) => {
-                              const newTone = e.target.value as JournalTone;
-                              setJournalTone(newTone);
+                      <div className="flex items-center px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl shadow-sm mr-2">
+                        <label className="text-xs font-bold text-blue-700 mr-2 uppercase tracking-wider">Tone</label>
+                        <select
+                          value={journalTone}
+                          onChange={async (e) => {
+                            const newTone = e.target.value as JournalTone;
+                            setJournalTone(newTone);
+                            if (activeTab === 'annual') {
+                              if (selectedStudent) {
+                                setIsLoading(true);
+                                try {
+                                  const latestAnnual = await generateAnnualPlan(selectedStudent, newTone);
+                                  setAnnualData(latestAnnual);
+                                  setMonthlyData(null); // Clear monthly to force sync on next view
+                                  setUploadStatus({ type: 'success', message: '연간계획서 문체가 적용되어 목표가 갱신되었습니다.' });
+                                } catch (error) {
+                                  console.error(error);
+                                  setUploadStatus({ type: 'error', message: '연간계획서 갱신 중 오류가 발생했습니다.' });
+                                } finally {
+                                  setIsLoading(false);
+                                  setTimeout(() => setUploadStatus(null), 3000);
+                                }
+                              }
+                            } else {
                               if (monthlyData) handleGenerateDraft(newTone);
-                            }}
-                            className="bg-transparent text-sm font-bold outline-none cursor-pointer text-slate-800"
-                          >
-                            <option value="normal">일반 임상 모드</option>
-                            <option value="academic">학술 논문 모드</option>
-                            <option value="expert">수석 샘플 모드</option>
-                          </select>
-                        </div>
-                      )}
+                            }
+                          }}
+                          className="bg-transparent text-sm font-bold outline-none cursor-pointer text-slate-800"
+                        >
+                          <option value="normal">일반 임상 모드</option>
+                          <option value="academic">학술 논문 모드</option>
+                          <option value="expert">수석 샘플 모드</option>
+                        </select>
+                      </div>
 
                       <div className="flex items-center gap-2 px-4 bg-white border border-border-theme rounded-xl h-11 shadow-sm">
                         <Calendar className="w-4 h-4 text-text-muted" />

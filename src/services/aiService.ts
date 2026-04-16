@@ -33,14 +33,31 @@ function safeJsonParse(text: string) {
   }
 }
 
-export async function generateAnnualPlan(student: Student): Promise<AnnualPlanData> {
-  try {
-    const areaInfo = student.monthlyAreas 
-      ? Object.entries(student.monthlyAreas).map(([m, a]) => `${m}월: ${a}`).join(", ")
-      : student.treatmentArea;
+export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert'): Promise<AnnualPlanData> {
+  const areaInfo = student.monthlyAreas 
+    ? Object.entries(student.monthlyAreas).map(([m, a]) => `${m}월: ${a}`).join(", ")
+    : student.treatmentArea;
 
+  let toneInstruction = "";
+  if (tone === 'normal') {
+    toneInstruction = `[문체 지침: 일반 치료사 모드] 
+부모님(보호자)이 읽고 치료의 방향성과 목표를 쉽게 공감할 수 있도록 친절하고 부드러운 평어체(~합니다, ~할 계획입니다)를 적극 사용하여 작성하세요. 
+극단적인 전문 용어의 나열보다는 일상적인 관찰에 기반한 쉬운 말로 풀어서 현행 수준과 목표를 서술하세요.`;
+  } else if (tone === 'academic') {
+    toneInstruction = `[문체 지침: 극강의 전문/학술 모드] 
+임상적이고 전문적인 치료 용어(예: 화용론적 기능, 수용/표현 언어 발달, 감각 통합 기제 등)를 과감하게 사용하고, 학술적인 보고서 어투로 작성하세요. 
+현행 수준과 목표는 논문 수준의 객관적이고 분석적인 문장으로 작성하며, 종결어미는 '~임.', '~함.', '~으로 판단됨.' 등 건조하게 통일하세요.`;
+  } else if (tone === 'expert') {
+    toneInstruction = `[문체 지침: 10년 차 전문가 모방 모드 (기본값)] 
+기존에 주입된 완벽한 전문가 작성 샘플 데이터에 기반하여 관찰 중심의 분석을 수행하세요. 
+주관적 해석이나 감정 표현은 단 하나도 허용하지 않고, 행동과 기제(Mechanism) 관점에서 작성하며, 모든 종결어미는 반드시 '-함', '-음', '-도모함' 등 엄격한 명사형으로 처리하세요.`;
+  }
+
+  try {
     const prompt = `
-      너는 10년 차 1급 전문 언어재활사 및 미술치료사이다. 다음 학생의 정보를 바탕으로 교육청 제출용 '연간 계획서'를 작성해라.
+      당신은 10년 차 1급 전문 언어재활사 및 미술치료사입니다. 아래 학생의 정보를 바탕으로 교육청 제출용 '연간 계획서'를 작성하세요.
+      
+      ${toneInstruction}
       
       [학생 정보]
       - 이름: ${student.name}
@@ -53,10 +70,8 @@ export async function generateAnnualPlan(student: Student): Promise<AnnualPlanDa
       2. 장애 특성 반영 (중요): 반드시 제공된 **장애 유형(${student.disabilityType})**의 전형적인 특성과 개별 학생의 예상되는 어려움을 연계하여 서술해라. 
          - 예: 자폐성 장애의 경우 사회적 상호작용 및 의사소통의 질적 결함, 제한적이고 반복적인 관심사 등을 반영.
          - 예: 지적 장애의 경우 인지 발달 지체로 인한 학습 및 적응 행동의 어려움을 반영.
-      3. 문체 및 어조: 주관적인 감정 표현은 철저히 배제하고, 객관적이고 임상적인 행동 관찰 위주로 서술한다.
-      4. 종결어미: 모든 문장의 끝은 반드시 "-함", "-보임", "-관찰됨", "-향상됨", "-강화됨" 형태의 명사형으로 끝맺는다.
-      5. 전문성: 전문가 수준의 임상 용어(예: 공동주의, 화용론적 결함, 소근육 발달, 정서 조절 등)를 적재적소에 사용한다.
-      6. 영역 전환 대응: 만약 월별 치료 영역이 변경되는 경우(예: 5월까지 미술, 6월부터 언어), 해당 월부터는 변경된 영역에 적합한 목표와 내용을 작성해라.
+      3. 전문성: 현행 수준과 장기 목표를 작성할 때 대상 학생의 수준에 맞는 전문적 평가 요소들을 적재적소에 사용한다.
+      4. 영역 전환 대응: 만약 월별 치료 영역이 변경되는 경우(예: 5월까지 미술, 6월부터 언어), 해당 월부터는 변경된 영역에 적합한 목표와 내용을 작성해라.
       
       [응답 구조]
       {
