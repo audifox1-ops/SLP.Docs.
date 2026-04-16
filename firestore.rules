@@ -94,6 +94,16 @@ service cloud.firestore {
       allow update, delete: if true;
     }
     
+    // Annual Plans collection
+    match /annual_plans/{planId} {
+      allow read, write: if true;
+    }
+
+    // Monthly Journals collection
+    match /monthly_journals/{journalId} {
+      allow read, write: if true;
+    }
+    
     // Test connection path
     match /test/connection {
       allow read: if true;
