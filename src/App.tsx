@@ -7,6 +7,8 @@ import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord
 import { generateAnnualPlan, generateMonthlyJournal } from './services/aiService';
 import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
+import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
+import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import { 
@@ -46,6 +48,13 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
+  
+  // Export Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportAction, setExportAction] = useState<'print' | 'download' | null>(null);
+  const [exportMonthlyDataList, setExportMonthlyDataList] = useState<{ month: number; year: number; data: MonthlyJournalData }[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportIncludeAnnual, setExportIncludeAnnual] = useState(true);
   
   // Student Info Management State
   const [studentInfos, setStudentInfos] = useState<StudentInfo[]>([]);
@@ -773,275 +782,186 @@ export default function App() {
 
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   
-  const handlePrint = () => {
-    const printContent = document.querySelector('.document-container');
-    if (!printContent) return;
+  const handlePrintRequest = () => {
+    setExportAction('print');
+    setShowExportModal(true);
+  };
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('팝업 차단이 설정되어 있을 수 있습니다. 팝업을 허용해 주세요.');
+  const handleDownloadRequest = () => {
+    if (!annualData && !monthlyData) {
+      alert('현재 선택된 학생의 데이터가 없습니다.');
       return;
     }
+    setExportAction('download');
+    setShowExportModal(true);
+  };
 
-    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-      .map(style => style.outerHTML)
-      .join('\n');
+  const executeExport = async (options: ExportOptions) => {
+    if (!selectedStudent) return;
+    
+    setShowExportModal(false);
+    setIsExporting(true);
+    setExportIncludeAnnual(options.includeAnnual);
+    
+    try {
+      // 1. Ensure Annual Data exists
+      let currentAnnual = annualData;
+      if (!currentAnnual) {
+        currentAnnual = await generateAnnualPlan(selectedStudent);
+        setAnnualData(currentAnnual);
+      }
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${selectedStudent?.name || '치료서류'}_인쇄</title>
-          ${styles}
-          <style>
-            @media print {
-              body { margin: 0; padding: 0; }
-              .no-print { display: none !important; }
-              .document-container { 
-                width: 210mm; 
-                min-height: 297mm; 
-                padding: 15mm !important; 
-                margin: 0 auto;
-                box-shadow: none !important;
-                border: none !important;
+      // 2. Fetch Multi-month Data
+      const multiMonthData: { month: number; year: number; data: MonthlyJournalData }[] = [];
+      const { startYear, startMonth, endYear, endMonth } = options;
+      
+      let sy = startYear;
+      let sm = startMonth;
+      
+      while (sy < endYear || (sy === endYear && sm <= endMonth)) {
+        const yearStr = sy.toString();
+        const monthNum = sm;
+        
+        const filteredDates = selectedStudent.paymentDates.filter(d => {
+            try {
+              const dStr = String(d).trim();
+              const match = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+              if (match) {
+                const yearMatch = match[1].length === 2 ? yearStr.endsWith(match[1]) : match[1] === yearStr;
+                return yearMatch && parseInt(match[2], 10) === monthNum;
               }
+              const parts = dStr.split(/[-./\s년월일]+/).filter(Boolean);
+              if (parts.length >= 2) {
+                const yearMatch = parts[0].length === 2 ? yearStr.endsWith(parts[0]) : parts[0] === yearStr;
+                return yearMatch && parseInt(parts[1], 10) === monthNum;
+              }
+              return false;
+            } catch (e) { return false; }
+        });
+
+        const studentWithFilteredDates = { ...selectedStudent, paymentDates: filteredDates };
+        const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === monthNum)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
+        
+        let mData: MonthlyJournalData | null = null;
+        if (filteredDates.length > 0) {
+          mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal);
+        } else {
+          mData = {
+            currentLevel: "해당 월의 치료 내역이 없습니다.",
+            monthlyGoal: monthlyGoal,
+            sessions: [],
+            result: "내역 없음"
+          };
+        }
+        
+        if (mData && mData.sessions) {
+            const sessionDates = new Set(mData.sessions.map(s => s.date));
+            const missingDates = filteredDates.filter(d => !sessionDates.has(d));
+            if (missingDates.length > 0) {
+              const mockMissing = generateMockSessions(missingDates, studentWithFilteredDates.treatmentArea, monthlyGoal);
+              mData.sessions = [...mData.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
             }
-            body { 
-              background-color: white; 
-              margin: 0; 
-              padding: 20px;
-              display: flex;
-              justify-content: center;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="print-wrapper">
-            ${printContent.innerHTML}
-          </div>
-          <script>
-            window.onload = () => {
-              setTimeout(() => {
-                window.print();
-                // window.close(); // Optional: close after print
-              }, 500);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  };
+        }
+        
+        multiMonthData.push({ month: monthNum, year: sy, data: mData });
+        
+        sm++;
+        if (sm > 12) {
+          sm = 1;
+          sy++;
+        }
+      }
 
-  const handleDownloadWord = async () => {
-    if (!selectedStudent || (!annualData && !monthlyData)) return;
-
-    const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle } = await import('docx');
-    const { saveAs } = await import('file-saver');
-
-    const createBorder = () => ({
-      style: BorderStyle.SINGLE,
-      size: 1,
-      color: "000000",
-    });
-
-    const borders = {
-      top: createBorder(),
-      bottom: createBorder(),
-      left: createBorder(),
-      right: createBorder(),
-    };
-
-    const sections = [];
-
-    if (activeTab === 'annual' && annualData) {
-      // Annual Plan Word Generation
-      sections.push({
-        properties: {},
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({
-                text: `${selectedYear}. 교육청 치료지원(마중물) 대상 연간 계획서`,
-                bold: true,
-                size: 32,
-              }),
-            ],
-            spacing: { after: 400 },
-          }),
-          // Basic Info Table
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  ['학생명', '생년월일', '소속 학교', '장애 유형', '치료 영역', '치료 일정'].map(text => 
-                    new TableCell({
-                      children: [new Paragraph({ text, alignment: AlignmentType.CENTER })],
-                      shading: { fill: "F1F5F9" },
-                      borders,
-                    })
-                  )
-                ].flat(),
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.name, bold: true })], alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.birthDate, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.school, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.disabilityType, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.treatmentArea, bold: true })], alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ 
-                    children: [
-                      new Paragraph({ text: `요일: ${selectedStudent.schedule.day}` }),
-                      new Paragraph({ text: `시간: ${selectedStudent.schedule.time}` }),
-                      new Paragraph({ text: `시작: ${selectedYear}.3.` }),
-                    ], 
-                    borders 
-                  }),
-                ],
-              }),
-            ],
-          }),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "현행 수준 및 특성", bold: true })] }),
-          ...annualData.currentLevel.map(text => new Paragraph({ text: `• ${text}`, indent: { left: 240 } })),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "장기 치료 목표", bold: true })] }),
-          ...annualData.longTermGoals.map(text => new Paragraph({ text: `• ${text}`, indent: { left: 240 } })),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Paragraph({ children: [new TextRun({ text: "연간 치료 계획", bold: true })] }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: ['월', '치료 영역', '단기 목표', '치료 내용'].map(text => 
-                  new TableCell({
-                    children: [new Paragraph({ text, alignment: AlignmentType.CENTER })],
-                    shading: { fill: "F1F5F9" },
-                    borders,
-                  })
-                ),
-              }),
-              ...annualData.monthlyGoals.map(goal => new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: `${goal.month}월`, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: goal.area || selectedStudent.monthlyAreas?.[goal.month] || selectedStudent.treatmentArea, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: goal.goal })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: goal.content })], borders }),
-                ],
-              })),
-            ],
-          }),
-        ],
-      });
-    } else if (activeTab === 'monthly' && monthlyData) {
-      // Monthly Journal Word Generation
-      sections.push({
-        properties: {},
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({
-                text: `${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`,
-                bold: true,
-                size: 32,
-              }),
-            ],
-            spacing: { after: 400 },
-          }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: ['학생명', '생년월일', '소속학교', '장애 유형', '치료 영역', '치료 일정'].map(text => 
-                  new TableCell({
-                    children: [new Paragraph({ text, alignment: AlignmentType.CENTER })],
-                    shading: { fill: "F1F5F9" },
-                    borders,
-                  })
-                ),
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.name, bold: true })], alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.birthDate, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.school, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: selectedStudent.disabilityType, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea, bold: true })], alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ 
-                    children: [
-                      new Paragraph({ text: `요일: ${selectedStudent.schedule.day}` }),
-                      new Paragraph({ text: `시간: ${selectedStudent.schedule.time}` }),
-                    ], 
-                    borders 
-                  }),
-                ],
-              }),
-            ],
-          }),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "현행 수준", bold: true })] })], shading: { fill: "F1F5F9" }, borders, width: { size: 20, type: WidthType.PERCENTAGE } }),
-                  new TableCell({ children: [new Paragraph({ text: monthlyData.currentLevel })], borders }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "치료 목표", bold: true })] })], shading: { fill: "F1F5F9" }, borders }),
-                  new TableCell({ children: [new Paragraph({ text: monthlyData.monthlyGoal })], borders }),
-                ],
-              }),
-            ],
-          }),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: ['날짜', '치료 내용', '아동 반응', '비고'].map(text => 
-                  new TableCell({
-                    children: [new Paragraph({ text, alignment: AlignmentType.CENTER })],
-                    shading: { fill: "F1F5F9" },
-                    borders,
-                  })
-                ),
-              }),
-              ...monthlyData.sessions.map(session => new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: session.date, alignment: AlignmentType.CENTER })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: session.content })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: session.reaction })], borders }),
-                  new TableCell({ children: [new Paragraph({ text: session.consultation })], borders }),
-                ],
-              })),
-            ],
-          }),
-          new Paragraph({ text: "", spacing: { before: 200 } }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "치료 결과", bold: true })] })], shading: { fill: "F1F5F9" }, borders, width: { size: 20, type: WidthType.PERCENTAGE } }),
-                  new TableCell({ children: [new Paragraph({ text: monthlyData.result })], borders }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      });
+      setExportMonthlyDataList(multiMonthData);
+      
+      // 3. Document Output Logic
+      if (exportAction === 'download') {
+        await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth);
+        setExportAction(null);
+      }
+      // For print, we wait for useEffect to trigger after render
+    } catch (err) {
+      console.error(err);
+      alert('서류 생성 중 오류가 발생했습니다.');
+      setExportAction(null);
+    } finally {
+      setIsExporting(false);
     }
-
-    const doc = new Document({ sections });
-    const blob = await Packer.toBlob(doc);
-    saveAs(blob, `${selectedStudent.name}_${selectedYear}년_${selectedMonth}월_치료서류.docx`);
   };
+
+  useEffect(() => {
+    if (!isExporting && exportMonthlyDataList.length > 0 && exportAction === 'print') {
+      const printTriggerTimer = setTimeout(() => {
+        const printContent = document.querySelector('.export-print-container');
+        if (!printContent) return;
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+          alert('팝업 차단이 설정되어 있을 수 있습니다. 팝업을 허용해 주세요.');
+          return;
+        }
+
+        const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+          .map(style => style.outerHTML)
+          .join('\\n');
+
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>${selectedStudent?.name || '치료서류'}_다중인쇄</title>
+              ${styles}
+              <style>
+                @media print {
+                  body { margin: 0; padding: 0; }
+                  .no-print { display: none !important; }
+                  .export-print-container { 
+                    width: 210mm; 
+                    margin: 0 auto;
+                    box-shadow: none !important;
+                    border: none !important;
+                  }
+                  .print-page-break {
+                    page-break-after: always;
+                    width: 210mm;
+                    min-height: 297mm;
+                    padding: 15mm !important;
+                    box-sizing: border-box;
+                  }
+                  /* Remove last page break to avoid blank page */
+                  .print-page-break:last-child {
+                    page-break-after: auto;
+                  }
+                }
+                body { 
+                  background-color: white; 
+                  margin: 0; 
+                  padding: 20px;
+                  display: flex;
+                  justify-content: center;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="print-wrapper">
+                ${printContent.innerHTML}
+              </div>
+              <script>
+                window.onload = () => {
+                  setTimeout(() => {
+                    window.print();
+                  }, 500);
+                };
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+        setExportAction(null);
+      }, 300);
+
+      return () => clearTimeout(printTriggerTimer);
+    }
+  }, [isExporting, exportMonthlyDataList, exportAction]);
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
@@ -1411,7 +1331,7 @@ export default function App() {
                       </div>
                       
                       <button 
-                        onClick={handleDownloadWord}
+                        onClick={handleDownloadRequest}
                         className="flex items-center gap-2 px-6 py-2.5 bg-white border border-primary text-primary rounded-xl font-bold text-sm hover:bg-primary-light transition-all"
                       >
                         <Download className="w-4 h-4" />
@@ -1419,7 +1339,7 @@ export default function App() {
                       </button>
 
                       <button 
-                        onClick={handlePrint}
+                        onClick={handlePrintRequest}
                         className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
                       >
                         <Printer className="w-4 h-4" />
@@ -1441,7 +1361,7 @@ export default function App() {
                   {/* Document Preview Container */}
                   <div className="bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme p-6 md:p-12 overflow-auto relative print:p-0 print:shadow-none print:border-none print:overflow-visible">
                     <AnimatePresence mode="wait">
-                      {isLoading ? (
+                      {isLoading || isExporting ? (
                         <motion.div 
                           key="loader"
                           initial={{ opacity: 0 }}
@@ -1497,6 +1417,30 @@ export default function App() {
         </div>
         <p>© 2026 치료 서류 자동 생성 시스템. All rights reserved.</p>
       </footer>
+      <ExportOptionsModal 
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        onExecute={executeExport}
+        defaultYear={selectedYear}
+        defaultMonth={selectedMonth}
+        actionType={exportAction}
+      />
+      {selectedStudent && (
+        <div className="hidden">
+          <div className="export-print-container">
+            {exportIncludeAnnual && annualData && (
+              <div className="print-page-break">
+                <AnnualPlan student={selectedStudent} data={annualData} year={exportMonthlyDataList[0]?.year || selectedYear} />
+              </div>
+            )}
+            {exportMonthlyDataList.map((item, idx) => (
+              <div key={`print-${idx}`} className="print-page-break">
+                <MonthlyJournal student={selectedStudent} data={item.data} month={item.month} year={item.year} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
