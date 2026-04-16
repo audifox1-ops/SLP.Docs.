@@ -14,6 +14,7 @@ import { db, OperationType, handleFirestoreError } from './firebase';
 import { 
   collection, 
   addDoc, 
+  getDoc,
   getDocs, 
   query, 
   where, 
