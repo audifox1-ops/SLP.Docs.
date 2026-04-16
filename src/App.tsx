@@ -68,29 +68,46 @@ export default function App() {
   // Firestore Listeners
   useEffect(() => {
     const qStudents = collection(db, 'students');
-    const unsubStudents = onSnapshot(qStudents, (snapshot) => {
-      const infos = snapshot.docs.map(doc => doc.data() as StudentInfo);
-      setStudentInfos(infos);
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'students'));
+    const unsubStudents = onSnapshot(qStudents, {
+      next: (snapshot) => {
+        const infos = snapshot.docs.map(doc => doc.data() as StudentInfo);
+        setStudentInfos(infos);
+      },
+      error: (err) => {
+        console.error("Firebase students listener error:", err);
+        // Ignore specific transient errors so they don't break the app
+        if (!err.message.includes('QUIC_PEER_GOING_AWAY')) {
+          handleFirestoreError(err, OperationType.LIST, 'students');
+        }
+      }
+    });
 
     const qPayments = collection(db, 'payment_records');
-    const unsubPayments = onSnapshot(qPayments, (snapshot) => {
-      const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentRecord));
-      setAllPaymentRecords(records);
-      
-      // Auto-Load Notification
-      if (!hasInitialLoaded.current && records.length > 0) {
-        setUploadStatus({ 
-          type: 'success', 
-          message: `기존 치료/결제 내역 ${records.length}건을 불러왔습니다.` 
-        });
-        hasInitialLoaded.current = true;
-        setTimeout(() => setUploadStatus(null), 4000);
-      } else if (!hasInitialLoaded.current && snapshot.metadata.fromCache === false) {
-        // Even if 0 records, mark as loaded once we get a fresh response
-        hasInitialLoaded.current = true;
+    const unsubPayments = onSnapshot(qPayments, {
+      next: (snapshot) => {
+        const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentRecord));
+        setAllPaymentRecords(records);
+        
+        // Auto-Load Notification
+        if (!hasInitialLoaded.current && records.length > 0) {
+          setUploadStatus({ 
+            type: 'success', 
+            message: `기존 치료/결제 내역 ${records.length}건을 불러왔습니다.` 
+          });
+          hasInitialLoaded.current = true;
+          setTimeout(() => setUploadStatus(null), 4000);
+        } else if (!hasInitialLoaded.current && snapshot.metadata.fromCache === false) {
+          // Even if 0 records, mark as loaded once we get a fresh response
+          hasInitialLoaded.current = true;
+        }
+      },
+      error: (err) => {
+        console.error("Firebase payments listener error:", err);
+        if (!err.message.includes('QUIC_PEER_GOING_AWAY')) {
+          handleFirestoreError(err, OperationType.LIST, 'payment_records');
+        }
       }
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'payment_records'));
+    });
 
     return () => {
       unsubStudents();
@@ -873,6 +890,15 @@ export default function App() {
       }
 
       setExportMonthlyDataList(multiMonthData);
+      
+      // Validate if we actually collected any sessions
+      const hasValidSessions = multiMonthData.some(item => item.data && item.data.sessions.length > 0);
+      if (!hasValidSessions) {
+        alert(`${startYear}년 ${startMonth}월부터 ${endYear}년 ${endMonth}월 사이의 결제/치료 내역이 0건입니다.\n날짜 필터링을 다시 확인해 주세요.`);
+        setIsExporting(false);
+        setExportAction(null);
+        return;
+      }
       
       // 3. Document Output Logic
       if (exportAction === 'download') {
