@@ -6,9 +6,22 @@ interface Props {
   data: MonthlyJournalData;
   month: number;
   year: number;
+  isEditing?: boolean;
+  onUpdate?: (data: MonthlyJournalData) => void;
 }
 
-export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) => {
+export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, isEditing, onUpdate }) => {
+  const handleChange = (field: keyof MonthlyJournalData, value: any) => {
+    if (onUpdate) onUpdate({ ...data, [field]: value });
+  };
+
+  const handleSessionChange = (idx: number, field: string, value: any) => {
+    if (onUpdate) {
+      const newSessions = [...data.sessions];
+      newSessions[idx] = { ...newSessions[idx], [field]: value };
+      onUpdate({ ...data, sessions: newSessions });
+    }
+  };
   return (
     <div className="bg-white w-full max-w-[210mm] mx-auto font-sans text-black p-2 sm:p-[5mm] md:p-[8mm] box-border document-container print:p-0">
       {/* Header Section */}
@@ -88,7 +101,13 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
       <div className="flex border border-black border-b-0">
         <div className="bg-slate-100 p-2 font-bold border-r border-black w-28 flex items-center justify-center text-[0.85rem]">현행 수준</div>
         <div className="p-2 text-[0.8rem] leading-snug flex-1 min-h-[40px]">
-          {data.currentLevel}
+          {isEditing ? (
+            <textarea
+              className="w-full h-16 border border-indigo-200 rounded p-1 outline-none focus:ring-1 focus:ring-indigo-500"
+              value={data.currentLevel}
+              onChange={(e) => handleChange('currentLevel', e.target.value)}
+            />
+          ) : data.currentLevel}
         </div>
       </div>
 
@@ -96,7 +115,13 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
       <div className="flex border border-black mb-4">
         <div className="bg-slate-100 p-2 font-bold border-r border-black w-28 flex items-center justify-center text-[0.85rem]">({month})월 치료 목표</div>
         <div className="p-2 text-[0.8rem] leading-snug flex-1 min-h-[40px]">
-          {data.monthlyGoal}
+          {isEditing ? (
+            <textarea
+              className="w-full h-16 border border-indigo-200 rounded p-1 outline-none focus:ring-1 focus:ring-indigo-500"
+              value={data.monthlyGoal}
+              onChange={(e) => handleChange('monthlyGoal', e.target.value)}
+            />
+          ) : data.monthlyGoal}
         </div>
       </div>
 
@@ -114,10 +139,43 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
           {data.sessions.length > 0 ? (
             data.sessions.map((session, idx) => (
               <tr key={idx} className="h-16">
-                <td className="border border-black p-1 text-center font-bold">{session.date}</td>
-                <td className="border border-black p-1 leading-snug">{session.content}</td>
-                <td className="border border-black p-1 leading-snug">{session.reaction}</td>
-                <td className="border border-black p-1 text-[0.7rem]">{session.consultation}</td>
+                <td className="border border-black p-1 text-center font-bold">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      className="w-full bg-indigo-50/30 border-none text-center outline-none"
+                      value={session.date}
+                      onChange={(e) => handleSessionChange(idx, 'date', e.target.value)}
+                    />
+                  ) : session.date}
+                </td>
+                <td className="border border-black p-1 leading-snug">
+                  {isEditing ? (
+                    <textarea
+                      className="w-full h-full min-h-[60px] bg-indigo-50/30 border-none outline-none p-1"
+                      value={session.content}
+                      onChange={(e) => handleSessionChange(idx, 'content', e.target.value)}
+                    />
+                  ) : session.content}
+                </td>
+                <td className="border border-black p-1 leading-snug">
+                  {isEditing ? (
+                    <textarea
+                      className="w-full h-full min-h-[60px] bg-indigo-50/30 border-none outline-none p-1"
+                      value={session.reaction}
+                      onChange={(e) => handleSessionChange(idx, 'reaction', e.target.value)}
+                    />
+                  ) : session.reaction}
+                </td>
+                <td className="border border-black p-1 text-[0.7rem]">
+                  {isEditing ? (
+                    <textarea
+                      className="w-full h-full min-h-[60px] bg-indigo-50/30 border-none outline-none p-1"
+                      value={session.consultation}
+                      onChange={(e) => handleSessionChange(idx, 'consultation', e.target.value)}
+                    />
+                  ) : session.consultation}
+                </td>
               </tr>
             ))
           ) : (
@@ -143,7 +201,13 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year }) 
       <div className="flex border border-black">
         <div className="bg-slate-100 p-2 font-bold border-r border-black w-28 flex items-center justify-center text-[0.85rem]">({month})월 치료 결과</div>
         <div className="p-2 text-[0.8rem] leading-snug flex-1 min-h-[40px]">
-          {data.result}
+          {isEditing ? (
+            <textarea
+              className="w-full h-16 border border-indigo-200 rounded p-1 outline-none focus:ring-1 focus:ring-indigo-500"
+              value={data.result}
+              onChange={(e) => handleChange('result', e.target.value)}
+            />
+          ) : data.result}
         </div>
       </div>
     </div>

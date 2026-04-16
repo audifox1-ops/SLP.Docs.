@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -49,6 +49,7 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
   const [journalTone, setJournalTone] = useState<JournalTone>('expert');
+  const [isEditing, setIsEditing] = useState(false);
   
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
@@ -652,6 +653,7 @@ export default function App() {
         await setDoc(doc(db, 'monthly_journals', docId), monthlyData);
         setUploadStatus({ type: 'success', message: `${selectedMonth}월 치료일지가 성공적으로 저장되었습니다.` });
       }
+      setIsEditing(false); // Exit editing mode after saving
     } catch (error) {
       console.error("Save Error:", error);
       handleFirestoreError(error, OperationType.UPDATE, activeTab === 'annual' ? 'annual_plans' : 'monthly_journals');
@@ -701,6 +703,7 @@ export default function App() {
     setIsLoading(true);
     setAnnualData(null);
     setMonthlyData(null);
+    setIsEditing(false); // Reset edit mode on student/tab change
     
     try {
       // More robust date filtering by year and month
@@ -1479,16 +1482,38 @@ export default function App() {
                       </button>
 
                       <button 
+                        onClick={isEditing ? handleSaveDocument : () => setIsEditing(true)}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                          ((activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData))
+                            ? isEditing ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
+                        }`}
+                        disabled={!((activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData))}
+                      >
+                        {isEditing ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            수정 완료 및 저장
+                          </>
+                        ) : (
+                          <>
+                            <Pencil className="w-4 h-4" />
+                            내용 수정하기
+                          </>
+                        )}
+                      </button>
+
+                      <button 
                         onClick={handleSaveDocument}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
                           (activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData)
-                            ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20'
+                            ? 'bg-slate-800 text-white hover:bg-slate-900 shadow-slate-800/20'
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none border border-slate-200'
                         }`}
                         disabled={!((activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData))}
                       >
                         <Save className="w-4 h-4" />
-                        서류 저장
+                        단순 저장
                       </button>
 
                       {activeTab === 'annual' && (
@@ -1545,9 +1570,22 @@ export default function App() {
                           className="document-container min-h-full"
                         >
                           {activeTab === 'annual' && annualData && annualData.currentLevel ? (
-                            <AnnualPlan student={selectedStudent} data={annualData} year={selectedYear} />
+                            <AnnualPlan 
+                              student={selectedStudent} 
+                              data={annualData} 
+                              year={selectedYear} 
+                              isEditing={isEditing}
+                              onUpdate={(newData) => setAnnualData(newData)}
+                            />
                           ) : activeTab === 'monthly' && monthlyData && monthlyData.sessions ? (
-                            <MonthlyJournal student={selectedStudent} data={monthlyData} month={selectedMonth} year={selectedYear} />
+                            <MonthlyJournal 
+                              student={selectedStudent} 
+                              data={monthlyData} 
+                              month={selectedMonth} 
+                              year={selectedYear} 
+                              isEditing={isEditing}
+                              onUpdate={(newData) => setMonthlyData(newData)}
+                            />
                           ) : (
                             <div className="flex flex-col items-center justify-center h-full py-20 text-text-muted opacity-50">
                               <FileText className="w-16 h-16 mb-4" />
