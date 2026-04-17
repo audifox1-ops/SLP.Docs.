@@ -27,7 +27,7 @@
     }
     @page {
       size: A4 portrait;
-      margin: 15mm;
+      margin: 10mm;
     }
     .document-container {
       box-shadow: none !important;
@@ -46,8 +46,8 @@
       border-collapse: collapse !important;
     }
     th, td {
-      padding: 4px 6px !important;
-      font-size: 10pt !important;
+      padding: 2px 4px !important;
+      font-size: 9pt !important;
     }
     tr {
       page-break-inside: avoid;

@@ -1049,19 +1049,31 @@ export default function App() {
       while (sy < endYear || (sy === endYear && sm <= endMonth)) {
         const yearStr = sy.toString();
         const monthNum = sm;
+        const monthStr = sm.toString().padStart(2, '0');
         
+        // Robust Date Filtering
         const filteredDates = selectedStudent.paymentDates.filter(d => {
             try {
               const dStr = String(d).trim();
-              const match = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+              // 지원하는 형식: 2026.04.17, 2026-04-17, 26/04/17, 2026년 4월 17일, 4/17 등
+              const match = dStr.match(/(\d{2,4})?[-./\s년]*(\d{1,2})[-./\s월]+(\d{1,2})/);
+              
               if (match) {
-                const yearMatch = match[1].length === 2 ? yearStr.endsWith(match[1]) : match[1] === yearStr;
-                return yearMatch && parseInt(match[2], 10) === monthNum;
+                const y = match[1];
+                const m = parseInt(match[2], 10);
+                
+                // 연도가 없는 경우(4/17 등)는 선택된 연도로 간주, 있는 경우는 일치 여부 확인
+                const yearMatch = !y || (y.length === 2 ? yearStr.endsWith(y) : y === yearStr);
+                return yearMatch && m === monthNum;
               }
+              
+              // 숫자만 있는 경우나 기타 구분자 처리
               const parts = dStr.split(/[-./\s년월일]+/).filter(Boolean);
               if (parts.length >= 2) {
-                const yearMatch = parts[0].length === 2 ? yearStr.endsWith(parts[0]) : parts[0] === yearStr;
-                return yearMatch && parseInt(parts[1], 10) === monthNum;
+                const y = parts.length >= 3 ? parts[0] : null;
+                const m = parseInt(parts[parts.length === 2 ? 0 : 1], 10);
+                const yearMatch = !y || (y.length === 2 ? yearStr.endsWith(y) : y === yearStr);
+                return yearMatch && m === monthNum;
               }
               return false;
             } catch (e) { return false; }
@@ -1070,8 +1082,17 @@ export default function App() {
         const studentWithFilteredDates = { ...selectedStudent, paymentDates: filteredDates };
         const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === monthNum)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
         
+        // [Optimization] Check Firestore first to avoid redundant AI calls
         let mData: MonthlyJournalData | null = null;
-        if (filteredDates.length > 0) {
+        const docId = `${selectedStudent.name}_${yearStr}_${monthNum}`;
+        const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
+        
+        if (monthlyDoc.exists()) {
+          mData = monthlyDoc.data() as MonthlyJournalData;
+          console.log(`[Cache] Using saved journal for ${yearStr}-${monthNum}`);
+        } else if (filteredDates.length > 0) {
+          // No saved data, generate check
+          console.log(`[AI] Generating new journal for ${yearStr}-${monthNum}`);
           mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal);
         } else {
           mData = {
@@ -1161,7 +1182,7 @@ export default function App() {
                     page-break-after: always;
                     width: 210mm;
                     min-height: 297mm;
-                    padding: 15mm !important;
+                    padding: 10mm !important;
                     box-sizing: border-box;
                   }
                   /* Remove last page break to avoid blank page */
