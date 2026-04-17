@@ -48,9 +48,10 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
     name: '',
     birthDate: '',
     school: '',
-    disabilityType: '',
+    disabilityType: '기타',
     treatmentArea: '언어치료',
-    therapistName: ''
+    therapistName: '',
+    specialNotes: ''
   });
 
   const filteredInfos = studentInfos.filter(info => 
@@ -73,9 +74,10 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
       name: '',
       birthDate: '',
       school: '',
-      disabilityType: '',
+      disabilityType: '기타',
       treatmentArea: '언어치료',
-      therapistName: ''
+      therapistName: '',
+      specialNotes: ''
     });
   };
 
@@ -92,9 +94,10 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
       name: '',
       birthDate: '',
       school: '',
-      disabilityType: '',
+      disabilityType: '기타',
       treatmentArea: '언어치료',
-      therapistName: ''
+      therapistName: '',
+      specialNotes: ''
     });
   };
 
@@ -314,14 +317,28 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
 
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">장애 유형</label>
-                  <input
-                    required
-                    type="text"
-                    value={formData.disabilityType}
+                  <select
+                    value={formData.disabilityType || '기타'}
                     onChange={(e) => setFormData({ ...formData, disabilityType: e.target.value })}
-                    placeholder="예: 자폐성장애, 지적장애"
-                    className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
-                  />
+                    className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium cursor-pointer"
+                  >
+                    {[
+                      '자폐성장애',
+                      '지적장애',
+                      '뇌병변장애',
+                      '청각장애',
+                      '언어장애',
+                      '발달지연',
+                      '기타'
+                    ].map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                    {formData.disabilityType && ![
+                      '자폐성장애', '지적장애', '뇌병변장애', '청각장애', '언어장애', '발달지연', '기타'
+                    ].includes(formData.disabilityType) && (
+                      <option value={formData.disabilityType}>{formData.disabilityType} (기존 데이터)</option>
+                    )}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -350,6 +367,16 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                       className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
                     />
                   </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">특이사항 및 관찰 내용</label>
+                  <textarea
+                    value={formData.specialNotes || ''}
+                    onChange={(e) => setFormData({ ...formData, specialNotes: e.target.value })}
+                    placeholder="아이의 임상적 특성이나 특이사항을 자유롭게 기록하세요. AI 서류 생성 시 중요하게 반영됩니다."
+                    className="w-full h-24 px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium resize-none"
+                  />
                 </div>
 
                 <div className="pt-4 flex gap-3">

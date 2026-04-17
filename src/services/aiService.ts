@@ -65,6 +65,10 @@ export async function generateAnnualPlan(student: Student, tone: JournalTone = '
       - 장애 유형: ${student.disabilityType}
       - 치료 영역: ${areaInfo} (월별로 영역이 다를 경우 해당 영역에 맞는 목표를 수립할 것)
       
+      ${student.specialNotes ? `[특이사항 및 관찰 내용]
+이 학생의 특이사항은 다음과 같다: ${student.specialNotes}
+연간계획서와 월간 일지의 치료 목표 및 내용을 작성할 때, 반드시 이 특이사항을 고려하여 아동의 개별적 특성과 현행 발달 수준이 서류에 자연스럽게 녹아들도록 전문적으로 작성하라.` : ''}
+      
       ${referenceData ? `[학생 과거 치료 기록 및 평가 데이터]
 이 학생의 과거 치료 기록 및 평가 데이터는 다음과 같다:
 ---
@@ -145,6 +149,10 @@ export async function generateMonthlyJournal(student: Student, month: number, mo
       - 치료 영역: ${currentArea}
       - 결제 일자(세션 날짜): ${student.paymentDates.join(", ")}
       - 이번 달 치료 목표: ${effectiveGoal}
+      
+      ${student.specialNotes ? `[특이사항 및 관찰 내용]
+이 학생의 특이사항은 다음과 같다: ${student.specialNotes}
+연간계획서와 월간 일지의 치료 목표 및 내용을 작성할 때, 반드시 이 특이사항을 고려하여 아동의 개별적 특성과 현행 발달 수준이 서류에 자연스럽게 녹아들도록 전문적으로 작성하라.` : ''}
       
       ${referenceData ? `[학생 과거 치료 기록 및 평가 데이터]
 이 학생의 과거 치료 기록 및 평가 데이터는 다음과 같다:

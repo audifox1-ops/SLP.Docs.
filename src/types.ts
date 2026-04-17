@@ -16,6 +16,7 @@ export interface StudentInfo {
   therapistName: string;
   referenceData?: string;      // 과거 치료 기록 텍스트
   referenceFileName?: string;  // 업로드된 파일명
+  specialNotes?: string;       // 치료 관찰 및 특이사항
 }
 
 export interface Student {
@@ -37,6 +38,7 @@ export interface Student {
   monthlyAreas?: Record<number, string>; // month (1-12) -> area
   referenceData?: string;      // 과거 치료 기록 텍스트
   referenceFileName?: string;  // 업로드된 파일명
+  specialNotes?: string;       // 치료 관찰 및 특이사항
 }
 
 export interface AnnualPlanData {

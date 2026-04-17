@@ -550,7 +550,8 @@ export default function App() {
       paymentDates: paymentDates,
       monthlyAreas: monthlyAreas,
       referenceData: info.referenceData,
-      referenceFileName: info.referenceFileName
+      referenceFileName: info.referenceFileName,
+      specialNotes: info.specialNotes
     };
 
     setSelectedStudent(student);

@@ -47,12 +47,11 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       <table className="w-full border-collapse border border-black text-[0.8rem] mb-4">
         <thead>
           <tr className="bg-slate-100">
-            <th className="border border-black p-2 w-[12%]">학생명</th>
-            <th className="border border-black p-2 w-[15%]">생년월일</th>
-            <th className="border border-black p-2 w-[18%]">소속 학교<br/>(유치원)</th>
-            <th className="border border-black p-2 w-[18%]">장애 유형</th>
-            <th className="border border-black p-2 w-[15%]">치료 영역</th>
-            <th className="border border-black p-2 w-[22%]">치료 일정</th>
+            <th className="border border-black p-2 w-[15%]">학생명</th>
+            <th className="border border-black p-2 w-[17%]">생년월일</th>
+            <th className="border border-black p-2 w-[22%]">소속 학교<br/>(유치원)</th>
+            <th className="border border-black p-2 w-[20%]">장애 유형</th>
+            <th className="border border-black p-2 w-[26%]">치료 일정</th>
           </tr>
         </thead>
         <tbody>
@@ -62,12 +61,6 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
             <td className="border border-black p-2 text-center">{student.school}</td>
             <td className="border border-black p-2 text-center">
               {student.disabilityType}
-            </td>
-            <td className="border border-black p-2 text-center">
-              <div className="font-bold mb-2">{student.treatmentArea}</div>
-              <div className="bg-slate-100 p-1 text-[0.65rem] border-t border-black">
-                복지부 바우처<br/>이용 영역
-              </div>
             </td>
             <td className="border border-black p-0">
               <table className="w-full h-full border-collapse">
@@ -142,7 +135,6 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
           <thead>
             <tr className="bg-slate-50">
               <th className="border-b border-r border-black p-2 w-12 text-center">월</th>
-              <th className="border-b border-r border-black p-2 w-20 text-center">치료 영역</th>
               <th className="border-b border-r border-black p-2 text-center">단기 목표(월 목표)</th>
               <th className="border-b border-r border-black p-2 text-center">치료 내용</th>
               <th className="border-b border-black p-2 w-16 text-center">비고</th>
@@ -152,7 +144,6 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
             {data.monthlyGoals.map((goal, idx) => (
               <tr key={idx} className="h-10">
                 <td className="border-b border-r border-black p-2 text-center font-bold">{goal.month}월</td>
-                <td className="border-b border-r border-black p-2 text-center text-[0.75rem]">{goal.area || student.monthlyAreas?.[goal.month] || student.treatmentArea}</td>
                 <td className="border-b border-r border-black p-2">
                   {isEditing ? (
                     <textarea
