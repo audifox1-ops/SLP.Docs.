@@ -940,7 +940,7 @@ export default function App() {
         console.warn("AI generation failed, using mock data:", aiError);
         
         // Quota check (429)
-        if (aiError.message?.includes('429') || JSON.stringify(aiError).includes('429')) {
+        if (aiError.message?.includes('429') || JSON.stringify(error).includes('429')) {
           setUploadStatus({ 
             type: 'error', 
             message: 'Gemini API 할당량이 초과되었습니다(일일 20회). 잠시 후 다시 시도하거나 나중에 이용해 주세요. 현재는 임시 데이터로 표시됩니다.' 
@@ -1149,76 +1149,17 @@ export default function App() {
 
   useEffect(() => {
     if (!isExporting && exportMonthlyDataList.length > 0 && exportAction === 'print') {
-      const printTriggerTimer = setTimeout(() => {
-        const printContent = document.querySelector('.export-print-container');
-        if (!printContent) return;
-
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-          alert('팝업 차단이 설정되어 있을 수 있습니다. 팝업을 허용해 주세요.');
-          return;
-        }
-
-        const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-          .map(style => style.outerHTML)
-          .join('\\n');
-
-        printWindow.document.write(`
-          <html>
-            <head>
-              <title>${selectedStudent?.name || '치료서류'}_다중인쇄</title>
-              ${styles}
-              <style>
-                @media print {
-                  body { margin: 0; padding: 0; }
-                  .no-print { display: none !important; }
-                  .export-print-container { 
-                    width: 210mm; 
-                    margin: 0 auto;
-                    box-shadow: none !important;
-                    border: none !important;
-                  }
-                  .print-page-break {
-                    page-break-after: always;
-                    width: 210mm;
-                    min-height: 297mm;
-                    padding: 15mm 15mm !important; /* 머릿글/바닥글 제거 대응 여백 */
-                    box-sizing: border-box;
-                    background-color: white;
-                  }
-                  /* Remove last page break to avoid blank page */
-                  .print-page-break:last-child {
-                    page-break-after: auto;
-                  }
-                }
-                body { 
-                  background-color: white; 
-                  margin: 0; 
-                  padding: 20px;
-                  display: flex;
-                  justify-content: center;
-                }
-              </style>
-            </head>
-            <body>
-              <div class="print-wrapper">
-                ${printContent.innerHTML}
-              </div>
-              <script>
-                window.onload = () => {
-                  setTimeout(() => {
-                    window.print();
-                  }, 500);
-                };
-              </script>
-            </body>
-          </html>
-        `);
-        printWindow.document.close();
-        setExportAction(null);
-      }, 300);
-
-      return () => clearTimeout(printTriggerTimer);
+      const timer = setTimeout(() => {
+        // [Direct Print Strategy] 메인 창에서 직접 인쇄하여 테두리/폰트 유실 방지
+        window.print();
+        
+        // 인쇄 호출 후 상태 정리 (약간의 지연 필요)
+        setTimeout(() => {
+          setExportMonthlyDataList([]);
+          setExportAction(null);
+        }, 500);
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [isExporting, exportMonthlyDataList, exportAction]);
 
@@ -1519,7 +1460,7 @@ export default function App() {
             </aside>
 
             {/* Content Area - Document Preview */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-bg-theme/50">
+            <div className="flex-1 flex flex-col overflow-hidden bg-bg-theme/50 min-h-0">
               {!selectedStudent ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-text-muted p-10">
                   <motion.div 
@@ -1708,7 +1649,7 @@ export default function App() {
                   </div>
 
                   {/* Document Preview Container */}
-                  <div className="bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme p-6 md:p-12 overflow-auto relative print:p-0 print:shadow-none print:border-none print:overflow-visible">
+                  <div className="bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme p-6 md:p-12 overflow-auto relative print:hidden">
                     <AnimatePresence mode="wait">
                       {isLoading || isExporting ? (
                         <motion.div 
@@ -1779,6 +1720,7 @@ export default function App() {
         </div>
         <p>© 2026 치료 서류 자동 생성 시스템. All rights reserved.</p>
       </footer>
+
       <ExportOptionsModal 
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
@@ -1787,8 +1729,10 @@ export default function App() {
         defaultMonth={selectedMonth}
         actionType={exportAction}
       />
+
+      {/* [CRITICAL] Direct Print Container - Only visible during window.print() */}
       {selectedStudent && (
-        <div className="hidden">
+        <div className="print-only hidden fixed inset-0 z-[9999] bg-white overflow-visible">
           <div className="export-print-container">
             {exportIncludeAnnual && annualData && (
               <div className="print-page-break">
