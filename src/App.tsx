@@ -716,9 +716,17 @@ export default function App() {
       setMonthlyData(monthly);
       
       setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Draft generation failed:", error);
-      setUploadStatus({ type: 'error', message: '가상 일지 생성 중 오류가 발생했습니다.' });
+      
+      if (error.message?.includes('429') || JSON.stringify(error).includes('429')) {
+        setUploadStatus({ 
+          type: 'error', 
+          message: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도해 주세요. (무료 티어는 사용량이 제한되어 있습니다.)' 
+        });
+      } else {
+        setUploadStatus({ type: 'error', message: '가상 일지 생성 중 오류가 발생했습니다.' });
+      }
     } finally {
       setIsLoading(false);
       setTimeout(() => setUploadStatus(null), 3000);
@@ -833,8 +841,17 @@ export default function App() {
             result: "내역 없음"
           };
         }
-      } catch (aiError) {
+      } catch (aiError: any) {
         console.warn("AI generation failed, using mock data:", aiError);
+        
+        // Quota check (429)
+        if (aiError.message?.includes('429') || JSON.stringify(aiError).includes('429')) {
+          setUploadStatus({ 
+            type: 'error', 
+            message: 'Gemini API 할당량이 초과되었습니다(일일 20회). 잠시 후 다시 시도하거나 나중에 이용해 주세요. 현재는 임시 데이터로 표시됩니다.' 
+          });
+          setTimeout(() => setUploadStatus(null), 10000);
+        }
         // Fallback to mock data if AI fails
         annual = {
           currentLevel: ["전문적인 관찰 및 평가가 필요함.", "기초적인 의사소통 능력 탐색 중임."],
