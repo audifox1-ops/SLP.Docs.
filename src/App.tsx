@@ -548,7 +548,9 @@ export default function App() {
       startDate: `${selectedYear}.03`,
       therapistName: info.therapistName,
       paymentDates: paymentDates,
-      monthlyAreas: monthlyAreas
+      monthlyAreas: monthlyAreas,
+      referenceData: info.referenceData,
+      referenceFileName: info.referenceFileName
     };
 
     setSelectedStudent(student);
@@ -664,6 +666,28 @@ export default function App() {
     }
   };
 
+  const handleUploadReference = async (studentName: string, referenceData: string, fileName: string) => {
+    try {
+      // 1. Firestore students 컨렉션 업데이트
+      await updateDoc(doc(db, 'students', studentName), {
+        referenceData: referenceData,
+        referenceFileName: fileName
+      });
+      // 2. 로컬 상태 동기화
+      setStudentInfos(prev => prev.map(s => 
+        s.name === studentName 
+          ? { ...s, referenceData, referenceFileName: fileName }
+          : s
+      ));
+      setUploadStatus({ type: 'success', message: `'${studentName}' 학생의 과거 자료가 성공적으로 등록되었습니다. (${fileName})` });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      console.error('Reference upload error:', error);
+      setUploadStatus({ type: 'error', message: `과거 자료 저장 중 오류가 발생했습니다.` });
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
     
@@ -681,13 +705,13 @@ export default function App() {
       // 1. Get goal from existing annual data if available, otherwise generate
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse);
+        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData);
         setAnnualData(currentAnnual);
       }
       
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       
-      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal, toneToUse);
+      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData);
       setMonthlyData(monthly);
       
       setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
@@ -788,7 +812,7 @@ export default function App() {
           if (annualDoc.exists()) {
             currentAnnual = annualDoc.data() as AnnualPlanData;
           } else {
-            currentAnnual = await generateAnnualPlan(student, toneToUse);
+            currentAnnual = await generateAnnualPlan(student, toneToUse, student.referenceData);
           }
           setAnnualData(currentAnnual);
         }
@@ -799,7 +823,7 @@ export default function App() {
         
         // 3. Generate Monthly Journal using the extracted goal
         if (filteredDates.length > 0) {
-          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal, toneToUse);
+          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal, toneToUse, student.referenceData);
         } else {
           monthly = {
             currentLevel: "해당 월의 치료 내역이 없습니다.",
@@ -1163,6 +1187,7 @@ export default function App() {
             onUpdate={handleUpdateStudentInfo}
             onDelete={handleDeleteStudentInfo}
             onGenerateDocument={handleGenerateFromManagement}
+            onUploadReference={handleUploadReference}
           />
         ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">

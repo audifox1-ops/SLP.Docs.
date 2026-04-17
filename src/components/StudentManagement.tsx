@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText, Upload, CheckCircle2, Loader2, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentInfo } from '../types';
+import { extractTextFromFile } from '../utils/extractText';
 
 interface Props {
   studentInfos: StudentInfo[];
@@ -9,12 +10,39 @@ interface Props {
   onUpdate: (oldName: string, student: StudentInfo) => void;
   onDelete: (name: string) => void;
   onGenerateDocument: (name: string) => void;
+  onUploadReference: (studentName: string, referenceData: string, fileName: string) => Promise<void>;
 }
 
-export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete, onGenerateDocument }) => {
+export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete, onGenerateDocument, onUploadReference }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingUploadName, setPendingUploadName] = useState<string>('');
+
+  const handleFileUploadClick = (studentName: string) => {
+    setPendingUploadName(studentName);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !pendingUploadName) return;
+
+    setUploadingFor(pendingUploadName);
+    try {
+      const text = await extractTextFromFile(file);
+      await onUploadReference(pendingUploadName, text, file.name);
+    } catch (error) {
+      console.error('File upload error:', error);
+      alert(error instanceof Error ? error.message : '파일 처리 중 오류가 발생했습니다.');
+    } finally {
+      setUploadingFor(null);
+      setPendingUploadName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
   
   const [formData, setFormData] = useState<StudentInfo>({
     name: '',
@@ -72,6 +100,14 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-bg-theme/50 p-6 md:p-10">
+      {/* 숨겨진 파일 입력 */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept=".pdf,.txt"
+        onChange={handleFileChange}
+      />
       <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -141,6 +177,16 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                         </button>
                       </div>
                     </div>
+
+                    {/* 참조 데이터 배지 */}
+                    {info.referenceData && (
+                      <div className="flex items-center gap-1.5 mb-3 px-2.5 py-1.5 bg-emerald-50 rounded-lg border border-emerald-100">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                        <span className="text-[10px] font-bold text-emerald-700 truncate">
+                          📎 {info.referenceFileName || '과거 자료 등록됨'}
+                        </span>
+                      </div>
+                    )}
                     
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between">
@@ -161,13 +207,26 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                       </div>
                     </div>
 
-                    <button 
-                      onClick={() => onGenerateDocument(info.name)}
-                      className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 bg-primary-light text-primary rounded-xl font-bold text-xs hover:bg-primary hover:text-white transition-all border border-primary/10"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      서류 생성하기
-                    </button>
+                    <div className="flex gap-2 mt-4">
+                      <button 
+                        onClick={() => handleFileUploadClick(info.name)}
+                        disabled={uploadingFor === info.name}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-amber-50 text-amber-700 rounded-xl font-bold text-xs hover:bg-amber-100 transition-all border border-amber-100 disabled:opacity-50"
+                      >
+                        {uploadingFor === info.name ? (
+                          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 추출 중...</>
+                        ) : (
+                          <><Paperclip className="w-3.5 h-3.5" /> 과거 자료</>
+                        )}
+                      </button>
+                      <button 
+                        onClick={() => onGenerateDocument(info.name)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary-light text-primary rounded-xl font-bold text-xs hover:bg-primary hover:text-white transition-all border border-primary/10"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        서류 생성
+                      </button>
+                    </div>
                   </motion.div>
                 ))}
               </AnimatePresence>

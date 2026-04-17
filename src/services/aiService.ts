@@ -33,7 +33,7 @@ function safeJsonParse(text: string) {
   }
 }
 
-export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert'): Promise<AnnualPlanData> {
+export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert', referenceData?: string): Promise<AnnualPlanData> {
   const areaInfo = student.monthlyAreas 
     ? Object.entries(student.monthlyAreas).map(([m, a]) => `${m}월: ${a}`).join(", ")
     : student.treatmentArea;
@@ -64,6 +64,17 @@ export async function generateAnnualPlan(student: Student, tone: JournalTone = '
       - 소속: ${student.school}
       - 장애 유형: ${student.disabilityType}
       - 치료 영역: ${areaInfo} (월별로 영역이 다를 경우 해당 영역에 맞는 목표를 수립할 것)
+      
+      ${referenceData ? `[학생 과거 치료 기록 및 평가 데이터]
+이 학생의 과거 치료 기록 및 평가 데이터는 다음과 같다:
+---
+${referenceData.substring(0, 10000)}
+---
+[참조 데이터 활용 지침]
+1. 위 데이터를 꼼꼼히 분석하여 아동의 현행 수준(발달 상태)을 정확히 파악하라.
+2. 과거의 치료 내용 및 목표와 모순되지 않도록 새로운 목표와 프로그램을 구성하라.
+3. 과거 데이터에서 확인된 강점과 약점을 반영하여 현행 수준을 작성하라.
+4. 이전 치료에서 효과적이었던 중재 기법이 있다면 이를 계승·발전시켜라.` : ''}
       
       [시스템 지침]
       1. 핵심 임무: 학생 정보를 바탕으로 '현행 수준', '장기 목표', '월별 단기 목표 및 내용'을 창작한다.
@@ -101,7 +112,7 @@ export async function generateAnnualPlan(student: Student, tone: JournalTone = '
   }
 }
 
-export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal: string, tone: JournalTone = 'normal'): Promise<MonthlyJournalData> {
+export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal: string, tone: JournalTone = 'normal', referenceData?: string): Promise<MonthlyJournalData> {
   const effectiveGoal = monthlyGoal || "연간계획서에 목표가 설정되지 않았습니다.";
   const currentArea = student.monthlyAreas?.[month] || student.treatmentArea;
   
@@ -134,6 +145,16 @@ export async function generateMonthlyJournal(student: Student, month: number, mo
       - 치료 영역: ${currentArea}
       - 결제 일자(세션 날짜): ${student.paymentDates.join(", ")}
       - 이번 달 치료 목표: ${effectiveGoal}
+      
+      ${referenceData ? `[학생 과거 치료 기록 및 평가 데이터]
+이 학생의 과거 치료 기록 및 평가 데이터는 다음과 같다:
+---
+${referenceData.substring(0, 10000)}
+---
+[참조 데이터 활용 지침]
+1. 위 데이터를 분석하여 아동의 현재 기능 수준과 치료 이력을 파악하라.
+2. 과거 치료에서의 반응 패턴과 진전 양상을 반영하여 이번 달 치료 내용과 아동 반응을 작성하라.
+3. 과거 데이터와 모순되지 않도록 하되, 발달적 진보를 자연스럽게 서술하라.` : ''}
       
       [시스템 지침]
       1. 핵심 임무: 학생의 정보를 바탕으로 공식 문서에 들어갈 '치료 내용', '아동 반응', '월 치료 목표'를 창작한다.
