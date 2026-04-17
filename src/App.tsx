@@ -1182,8 +1182,9 @@ export default function App() {
                     page-break-after: always;
                     width: 210mm;
                     min-height: 297mm;
-                    padding: 10mm !important;
+                    padding: 15mm 15mm !important; /* 머릿글/바닥글 제거 대응 여백 */
                     box-sizing: border-box;
+                    background-color: white;
                   }
                   /* Remove last page break to avoid blank page */
                   .print-page-break:last-child {
