@@ -10,6 +10,7 @@ import { MonthlyJournal } from './components/MonthlyJournal';
 import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
 import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
+import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import { 
   collection, 
@@ -669,7 +670,7 @@ export default function App() {
 
   const handleUploadReference = async (studentName: string, referenceData: string, fileName: string) => {
     try {
-      // 1. Firestore students 컨렉션 업데이트
+      // 1. Firestore students 컬렉션 업데이트
       await updateDoc(doc(db, 'students', studentName), {
         referenceData: referenceData,
         referenceFileName: fileName
@@ -685,6 +686,100 @@ export default function App() {
     } catch (error) {
       console.error('Reference upload error:', error);
       setUploadStatus({ type: 'error', message: `과거 자료 저장 중 오류가 발생했습니다.` });
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
+  const handleUploadAttachment = async (studentName: string, file: File | Blob, name: string, type: 'image' | 'file') => {
+    try {
+      const path = `students/${studentName}/attachments/${new Date().getTime()}_${name}`;
+      let url = '';
+      if (file instanceof File) {
+        url = await uploadFile(file, path);
+      } else {
+        url = await uploadBlob(file, path);
+      }
+
+      const newAttachment = {
+        url,
+        name,
+        type,
+        createdAt: new Date().getTime()
+      };
+
+      // Firestore 업데이트
+      const studentDocRef = doc(db, 'students', studentName);
+      const studentDoc = await getDoc(studentDocRef);
+      if (studentDoc.exists()) {
+        const currentAttachments = studentDoc.data().attachments || [];
+        await updateDoc(studentDocRef, {
+          attachments: [...currentAttachments, newAttachment]
+        });
+
+        // 로컬 상태 동기화
+        setStudentInfos(prev => prev.map(s => 
+          s.name === studentName 
+            ? { ...s, attachments: [...(s.attachments || []), newAttachment] }
+            : s
+        ));
+        
+        // 만약 선택된 학생이면 즉시 반영
+        if (selectedStudent?.name === studentName) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            attachments: [...(prev.attachments || []), newAttachment]
+          } : null);
+        }
+      }
+      
+      setUploadStatus({ type: 'success', message: '첨부파일이 성공적으로 업로드되었습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      console.error('Attachment upload error:', error);
+      setUploadStatus({ type: 'error', message: '첨부파일 업로드 중 오류가 발생했습니다.' });
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
+  const handleDeleteAttachment = async (studentName: string, attachmentUrl: string) => {
+    try {
+      // 1. Storage에서 삭제 (URL에서 경로 추출이 어려울 경우 에러 방지를 위해 try-catch 내부 수행)
+      try {
+        await deleteFileFromStorage(attachmentUrl);
+      } catch (storageErr) {
+        console.warn('Storage deletion failed or file not found:', storageErr);
+      }
+
+      // 2. Firestore 업데이트
+      const studentDocRef = doc(db, 'students', studentName);
+      const studentDoc = await getDoc(studentDocRef);
+      if (studentDoc.exists()) {
+        const currentAttachments = studentDoc.data().attachments || [];
+        const updatedAttachments = currentAttachments.filter((att: any) => att.url !== attachmentUrl);
+        await updateDoc(studentDocRef, {
+          attachments: updatedAttachments
+        });
+
+        // 3. 로컬 상태 동기화
+        setStudentInfos(prev => prev.map(s => 
+          s.name === studentName 
+            ? { ...s, attachments: updatedAttachments }
+            : s
+        ));
+        
+        if (selectedStudent?.name === studentName) {
+          setSelectedStudent(prev => prev ? {
+            ...prev,
+            attachments: updatedAttachments
+          } : null);
+        }
+      }
+
+      setUploadStatus({ type: 'success', message: '첨부파일이 삭제되었습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      console.error('Attachment delete error:', error);
+      setUploadStatus({ type: 'error', message: '첨부파일 삭제 중 오류가 발생했습니다.' });
       setTimeout(() => setUploadStatus(null), 5000);
     }
   };
@@ -1206,6 +1301,8 @@ export default function App() {
             onDelete={handleDeleteStudentInfo}
             onGenerateDocument={handleGenerateFromManagement}
             onUploadReference={handleUploadReference}
+            onUploadAttachment={handleUploadAttachment}
+            onDeleteAttachment={handleDeleteAttachment}
           />
         ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">

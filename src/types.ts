@@ -17,6 +17,12 @@ export interface StudentInfo {
   referenceData?: string;      // 과거 치료 기록 텍스트
   referenceFileName?: string;  // 업로드된 파일명
   specialNotes?: string;       // 치료 관찰 및 특이사항
+  attachments?: {              // 추가된 첨부파일 (이미지 등)
+    url: string;
+    name: string;
+    type: 'image' | 'file';
+    createdAt: number;
+  }[];
 }
 
 export interface Student {
@@ -39,6 +45,12 @@ export interface Student {
   referenceData?: string;      // 과거 치료 기록 텍스트
   referenceFileName?: string;  // 업로드된 파일명
   specialNotes?: string;       // 치료 관찰 및 특이사항
+  attachments?: {              // 추가된 첨부파일 (이미지 등)
+    url: string;
+    name: string;
+    type: 'image' | 'file';
+    createdAt: number;
+  }[];
 }
 
 export interface AnnualPlanData {

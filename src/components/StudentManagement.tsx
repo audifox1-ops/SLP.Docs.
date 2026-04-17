@@ -11,6 +11,8 @@ interface Props {
   onDelete: (name: string) => void;
   onGenerateDocument: (name: string) => void;
   onUploadReference: (studentName: string, referenceData: string, fileName: string) => Promise<void>;
+  onUploadAttachment: (studentName: string, file: File | Blob, name: string, type: 'image' | 'file') => Promise<void>;
+  onDeleteAttachment: (studentName: string, attachmentUrl: string) => Promise<void>;
 }
 
 export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete, onGenerateDocument, onUploadReference }) => {
@@ -32,8 +34,12 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
 
     setUploadingFor(pendingUploadName);
     try {
-      const text = await extractTextFromFile(file);
-      await onUploadReference(pendingUploadName, text, file.name);
+      if (file.type.startsWith('image/')) {
+        await onUploadAttachment(pendingUploadName, file, file.name, 'image');
+      } else {
+        const text = await extractTextFromFile(file);
+        await onUploadReference(pendingUploadName, text, file.name);
+      }
     } catch (error) {
       console.error('File upload error:', error);
       alert(error instanceof Error ? error.message : '파일 처리 중 오류가 발생했습니다.');
@@ -41,6 +47,26 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
       setUploadingFor(null);
       setPendingUploadName('');
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent, studentName: string) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        if (blob) {
+          setUploadingFor(studentName);
+          const fileName = `clipboard_${new Date().getTime()}.png`;
+          try {
+            await onUploadAttachment(studentName, blob, fileName, 'image');
+          } catch (error) {
+            console.error('Paste upload error:', error);
+          } finally {
+            setUploadingFor(null);
+          }
+        }
+      }
     }
   };
   
@@ -108,7 +134,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
         type="file"
         ref={fileInputRef}
         className="hidden"
-        accept=".pdf,.txt"
+        accept=".pdf,.txt,image/*"
         onChange={handleFileChange}
       />
       <div className="max-w-5xl mx-auto w-full flex flex-col h-full">
@@ -181,13 +207,38 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                       </div>
                     </div>
 
-                    {/* 참조 데이터 배지 */}
-                    {info.referenceData && (
-                      <div className="flex items-center gap-1.5 mb-3 px-2.5 py-1.5 bg-emerald-50 rounded-lg border border-emerald-100">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                        <span className="text-[10px] font-bold text-emerald-700 truncate">
-                          📎 {info.referenceFileName || '과거 자료 등록됨'}
-                        </span>
+                    {/* 참조 데이터 배지 및 이미지 썸네일 */}
+                    {(info.referenceData || (info.attachments && info.attachments.length > 0)) && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {info.referenceData && (
+                          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 rounded-lg border border-emerald-100 max-w-full">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                            <span className="text-[10px] font-bold text-emerald-700 truncate">
+                              📎 {info.referenceFileName || '자료'}
+                            </span>
+                          </div>
+                        )}
+                        {info.attachments?.map((att, idx) => (
+                          <div key={idx} className="relative group/att">
+                            {att.type === 'image' ? (
+                              <img 
+                                src={att.url} 
+                                alt={att.name} 
+                                className="w-10 h-10 rounded-lg object-cover border border-border-theme shadow-sm"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-slate-50 border border-border-theme flex items-center justify-center">
+                                <Paperclip className="w-4 h-4 text-slate-400" />
+                              </div>
+                            )}
+                            <button 
+                              onClick={() => onDeleteAttachment(info.name, att.url)}
+                              className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/att:opacity-100 transition-opacity"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                     
@@ -371,13 +422,48 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                 
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">특이사항 및 관찰 내용</label>
-                  <textarea
-                    value={formData.specialNotes || ''}
-                    onChange={(e) => setFormData({ ...formData, specialNotes: e.target.value })}
-                    placeholder="아이의 임상적 특성이나 특이사항을 자유롭게 기록하세요. AI 서류 생성 시 중요하게 반영됩니다."
-                    className="w-full h-24 px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium resize-none"
-                  />
+                  <div className="relative">
+                    <textarea
+                      value={formData.specialNotes || ''}
+                      onChange={(e) => setFormData({ ...formData, specialNotes: e.target.value })}
+                      onPaste={(e) => editingName && handlePaste(e, editingName)}
+                      placeholder="아이의 임상적 특성이나 특이사항을 자유롭게 기록하세요. 복사한 이미지를 여기에 붙여넣을 수 있습니다."
+                      className="w-full h-24 px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium resize-none"
+                    />
+                    {uploadingFor === editingName && (
+                      <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] rounded-2xl flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* 등록된 첨부파일 미리보기 (수정 모드) */}
+                {editingName && formData.attachments && formData.attachments.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">등록된 첨부파일</label>
+                    <div className="flex flex-wrap gap-3">
+                      {formData.attachments.map((att, idx) => (
+                        <div key={idx} className="relative group ring-1 ring-border-theme p-1 rounded-xl bg-bg-theme shadow-sm">
+                          {att.type === 'image' ? (
+                            <img src={att.url} className="w-16 h-16 rounded-lg object-cover" alt="attachment" />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg flex items-center justify-center bg-white">
+                              <Paperclip className="w-6 h-6 text-slate-300" />
+                            </div>
+                          )}
+                          <button 
+                            type="button"
+                            onClick={() => onDeleteAttachment(editingName, att.url)}
+                            className="absolute -top-2 -right-2 bg-text-main text-white rounded-full p-1 shadow-lg hover:bg-red-500 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-4 flex gap-3">
                   <button
