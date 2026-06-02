@@ -15,6 +15,18 @@ export interface StudentInfo {
   disabilityType: string;
   treatmentArea: string;
   therapistName: string;
+  scheduleTime?: string;       // 현재 수업 시간 (예: 17:40~18:20)
+  scheduleDay?: string;        // 요일 (예: 목요일)
+  scheduleFrequency?: string;  // 횟수 (예: 주 1 회)
+  // 기간별 수업 시간 이력 (기간마다 시간·영역이 다른 학생용)
+  scheduleTimeHistory?: {
+    fromYear: number;   // 시작 연도
+    fromMonth: number;  // 시작 월
+    toYear?: number;    // 종료 연도 (없으면 현재까지)
+    toMonth?: number;   // 종료 월 (없으면 현재까지)
+    time: string;       // 수업 시간 (예: 17:20~18:00)
+    treatmentArea?: string; // 해당 기간 영역 (예: 미술치료)
+  }[];
   referenceData?: string;      // 과거 치료 기록 텍스트
   referenceFileName?: string;  // 업로드된 파일명
   specialNotes?: string;       // 치료 관찰 및 특이사항

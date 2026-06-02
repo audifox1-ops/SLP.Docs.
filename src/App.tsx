@@ -924,8 +924,31 @@ export default function App() {
       } else {
         const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
-        // 날짜 문자열 포맷: M/D(요일)\n수업시간(student.schedule.time)
-        // 결제 타이밍이 매번 달라 역산 방식은 부정확 → 학생별 고정 시간 사용
+        // 특정 날짜에 해당하는 수업 시간 반환
+        // scheduleTimeHistory 우선 → 없으면 scheduleTime 사용
+        const getScheduleTimeForDate = (dateStr: string, info: any): string => {
+          if (info?.scheduleTimeHistory?.length > 0) {
+            const m = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (m) {
+              const y = parseInt(m[1]);
+              const mo = parseInt(m[2]);
+              // 해당 날짜가 속하는 기간의 시간을 찾기
+              const matched = info.scheduleTimeHistory.find((h: any) => {
+                const from = h.fromYear * 100 + h.fromMonth;
+                const cur = y * 100 + mo;
+                if (h.toYear && h.toMonth) {
+                  const to = h.toYear * 100 + h.toMonth;
+                  return cur >= from && cur <= to;
+                }
+                return cur >= from;
+              });
+              if (matched) return matched.time;
+            }
+          }
+          return info?.scheduleTime || student.schedule?.time || '';
+        };
+
+        // 날짜 문자열 포맷: M/D(요일)\n수업시간
         const formatSessionDate = (dateStr: string): string => {
           const match = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
           if (match) {
@@ -933,10 +956,13 @@ export default function App() {
             const day = parseInt(match[3]);
             const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
             const base = `${month}/${day}(${dayName})`;
-            // student.schedule.time이 설정되어 있으면 날짜 아래에 표시
-            const scheduleTime = student.schedule?.time;
-            if (scheduleTime && scheduleTime !== '정보 없음' && scheduleTime !== '') {
-              return `${base}\n${scheduleTime}`;
+            
+            // studentInfos 상태에서 현재 학생의 정보를 찾음
+            const currentStudentInfo = studentInfos.find(info => info.name === student.name);
+            const time = getScheduleTimeForDate(dateStr, currentStudentInfo);
+            
+            if (time && time !== '정보 없음' && time !== '') {
+              return `${base}\n${time}`;
             }
             return base;
           }
