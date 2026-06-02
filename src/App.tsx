@@ -955,9 +955,11 @@ export default function App() {
 
         // 특정 날짜에 해당하는 수업 시간 반환
         // scheduleTimeHistory 우선 → 없으면 scheduleTime 사용
+        // 특정 날짜에 해당하는 수업 시간 반환
+        // scheduleTimeHistory 우선 → 없으면 scheduleTime 사용
         const getScheduleTimeForDate = (dateStr: string, info: any): string => {
           if (info?.scheduleTimeHistory?.length > 0) {
-            const m = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+            const m = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
             if (m) {
               const y = parseInt(m[1]);
               const mo = parseInt(m[2]);
@@ -979,7 +981,7 @@ export default function App() {
 
         // 날짜 문자열 포맷: M/D(요일)\n수업시간
         const formatSessionDate = (dateStr: string): string => {
-          const match = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+          const match = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
           if (match) {
             const month = parseInt(match[2]);
             const day = parseInt(match[3]);
