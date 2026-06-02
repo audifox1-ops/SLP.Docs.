@@ -441,6 +441,7 @@ export default function App() {
       for (const record of records) {
         const name = String(record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || '').trim();
         const date = String(record['거래일자'] || record['거래 일자'] || record['날짜'] || record['결제일'] || record['결제 일자'] || record['일자'] || record['Date'] || record['거래일'] || '').trim();
+        const time = String(record['거래시간'] || record['시간'] || record['결제시간'] || '').trim();
         const amount = record['금액'] || 0;
         const area = String(record['지원영역'] || record['지원 영역'] || record['치료영역'] || record['영역'] || record['서비스'] || '언어치료').trim();
 
@@ -458,13 +459,16 @@ export default function App() {
         }
 
         const newRecordRef = doc(collection(db, 'payment_records'));
-        batch.set(newRecordRef, {
+        const recordData: any = {
           studentName: name,
           transactionDate: date,
           amount: amount,
           treatmentArea: area,
           createdAt: serverTimestamp()
-        });
+        };
+        // 거래시간이 있으면 HH:MM 앞 5자리만 저장
+        if (time) recordData.transactionTime = time.substring(0, 5);
+        batch.set(newRecordRef, recordData);
         addedCount++;
       }
 
@@ -904,7 +908,6 @@ export default function App() {
       }
 
       // Firebase에 저장된 데이터가 없는 경우 → 빈 양식을 바로 표시 (AI 자동 생성 안 함)
-      // 연간계획서도 저장된 게 없으면 빈 양식으로 표시
       if (activeTab === 'annual') {
         const emptyAnnual: AnnualPlanData = {
           currentLevel: ['', ''],
@@ -917,25 +920,78 @@ export default function App() {
           }))
         };
         setAnnualData(emptyAnnual);
-        setIsEditing(true); // 빈 양식은 바로 편집 모드로
+        setIsEditing(true);
       } else {
-        // 월간일지 빈 양식 - 결제 날짜 기반으로 세션 행 생성
+        const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+
+        // 거래시간으로 수업 시작~종료 계산 (결제 후 역산: -50분 ~ -10분)
+        const calcSessionTime = (transactionTime: string): string => {
+          const parts = transactionTime.split(':');
+          if (parts.length < 2) return transactionTime;
+          const totalMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+          const startMin = totalMin - 50;
+          const endMin = totalMin - 10;
+          const fmt = (m: number) => {
+            const h = Math.floor(m / 60);
+            const min = m % 60;
+            return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+          };
+          return `${fmt(startMin)}~${fmt(endMin)}`;
+        };
+
+        // 날짜 문자열 포맷: M/D(요일)\nHH:MM~HH:MM
+        const formatSessionDate = (dateStr: string, timeStr?: string): string => {
+          const match = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+          if (match) {
+            const month = parseInt(match[2]);
+            const day = parseInt(match[3]);
+            const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
+            const base = `${month}/${day}(${dayName})`;
+            if (timeStr) return `${base}\n${calcSessionTime(timeStr)}`;
+            return base;
+          }
+          return dateStr;
+        };
+
+        // 해당 월 결제 기록 필터링 (시간 포함)
+        const monthlyRecords = allPaymentRecords
+          .filter(r => {
+            if (r.studentName !== student.name) return false;
+            const dStr = String(r.transactionDate).trim();
+            const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
+            if (m) {
+              const y = m[1];
+              const mo = m[2];
+              const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
+              return yearMatch && parseInt(mo, 10) === selectedMonth;
+            }
+            return false;
+          })
+          .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+
         const emptyMonthly: MonthlyJournalData = {
           currentLevel: '',
           monthlyGoal: '',
           therapyPeriod: `${selectedYear}.3.~`,
-          sessions: filteredDates.length > 0
-            ? filteredDates.map(date => ({
-                date,
+          sessions: monthlyRecords.length > 0
+            ? monthlyRecords.map(r => ({
+                date: formatSessionDate(r.transactionDate, r.transactionTime),
                 content: '',
                 reaction: '',
                 consultation: ''
               }))
-            : [{ date: '', content: '', reaction: '', consultation: '' }],
+            : filteredDates.length > 0
+              ? filteredDates.map(date => ({
+                  date: formatSessionDate(date),
+                  content: '',
+                  reaction: '',
+                  consultation: ''
+                }))
+              : [{ date: '', content: '', reaction: '', consultation: '' }],
           result: ''
         };
         setMonthlyData(emptyMonthly);
-        setIsEditing(true); // 빈 양식은 바로 편집 모드로
+        setIsEditing(true);
       }
 
     } catch (error) {

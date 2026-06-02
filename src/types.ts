@@ -2,6 +2,7 @@ export interface PaymentRecord {
   id?: string;
   studentName: string;
   transactionDate: string;
+  transactionTime?: string;  // 거래시간 (HH:MM:SS 형식)
   amount: number | string;
   treatmentArea: string;
   createdAt: any;

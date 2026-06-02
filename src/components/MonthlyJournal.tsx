@@ -156,15 +156,17 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
           {data.sessions.length > 0 ? (
             data.sessions.map((session, idx) => (
               <tr key={idx} className="h-14">
-                <td className="border border-black p-1 text-center font-bold">
+                <td className="border border-black p-1 text-center font-bold text-[0.72rem] leading-snug">
                   {isEditing ? (
                     <input
                       type="text"
-                      className="w-full bg-indigo-50/30 border-none text-center outline-none"
+                      className="w-full bg-indigo-50/30 border-none text-center outline-none text-[0.72rem]"
                       value={session.date}
                       onChange={(e) => handleSessionChange(idx, 'date', e.target.value)}
                     />
-                  ) : session.date}
+                  ) : (
+                    <span className="whitespace-pre-line">{session.date}</span>
+                  )}
                 </td>
                 <td className="border border-black p-1 px-2 leading-tight">
                   {isEditing ? (
