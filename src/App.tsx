@@ -894,6 +894,35 @@ export default function App() {
         const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
         if (monthlyDoc.exists()) {
           const savedMonthly = monthlyDoc.data() as MonthlyJournalData;
+          
+          // 기존 데이터의 날짜 필드에 시간이 누락된 경우(줄바꿈이 없는 경우) 현재 스케줄 시간을 병합
+          const currentStudentInfo = studentInfos.find(info => info.name === student.name);
+          if (currentStudentInfo) {
+            savedMonthly.sessions = savedMonthly.sessions.map(session => {
+              if (session.date && !session.date.includes('\n')) {
+                let time = '';
+                if (currentStudentInfo.scheduleTimeHistory && currentStudentInfo.scheduleTimeHistory.length > 0) {
+                  const matched = currentStudentInfo.scheduleTimeHistory.find((h: any) => {
+                    const from = h.fromYear * 100 + h.fromMonth;
+                    const cur = selectedYear * 100 + selectedMonth;
+                    if (h.toYear && h.toMonth) {
+                      const to = h.toYear * 100 + h.toMonth;
+                      return cur >= from && cur <= to;
+                    }
+                    return cur >= from;
+                  });
+                  if (matched) time = matched.time;
+                }
+                if (!time) time = currentStudentInfo.scheduleTime || student.schedule?.time || '';
+                
+                if (time && time !== '정보 없음' && time !== '') {
+                  session.date = `${session.date}\n${time}`;
+                }
+              }
+              return session;
+            });
+          }
+
           setMonthlyData(savedMonthly);
           
           // Also try to load annual if not present (needed for goals context)
