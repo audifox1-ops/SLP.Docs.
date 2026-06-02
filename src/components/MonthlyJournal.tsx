@@ -37,9 +37,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               <table className="border-collapse border border-black text-[0.65rem] w-full">
                 <tbody>
                   <tr>
-                    <td rowSpan={2} className="border border-black p-1 text-center bg-slate-50 w-6">결<br/>재</td>
-                    <td className="border border-black p-1 text-center bg-slate-50">기관장</td>
-                    <td className="border border-black p-1 text-center bg-slate-50">치료사</td>
+                    <td rowSpan={2} className="border border-black p-1 text-center  w-6">결<br/>재</td>
+                    <td className="border border-black p-1 text-center ">기관장</td>
+                    <td className="border border-black p-1 text-center ">치료사</td>
                   </tr>
                   <tr>
                     <td className="border border-black h-10"></td>
@@ -55,7 +55,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       {/* Basic Info Table */}
       <table className="w-full border-collapse border border-black text-[0.75rem] mb-2">
         <thead>
-          <tr className="bg-slate-100">
+          <tr className="">
             <th className="border border-black p-1 w-[12%]">학생명</th>
             <th className="border border-black p-1 w-[15%]">생년월일</th>
             <th className="border border-black p-1 w-[18%]">소속학교<br/>(유치원)</th>
@@ -77,7 +77,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               <table className="w-full h-full border-collapse">
                 <tbody className="text-[0.65rem]">
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50 w-16">치료 기간</td>
+                    <td className="p-1 border-b border-r border-black  w-16">치료 기간</td>
                     <td className="p-1 border-b border-black font-bold">
                       {isEditing ? (
                         <input
@@ -92,19 +92,19 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                     </td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50">치료사</td>
+                    <td className="p-1 border-b border-r border-black ">치료사</td>
                     <td className="p-1 border-b border-black font-bold">{student.therapistName}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50">요일</td>
+                    <td className="p-1 border-b border-r border-black ">요일</td>
                     <td className="p-1 border-b border-black font-bold">{student.schedule.day}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50">시간</td>
+                    <td className="p-1 border-b border-r border-black ">시간</td>
                     <td className="p-1 border-b border-black font-bold">{student.schedule.time}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-r border-black bg-slate-50">횟수</td>
+                    <td className="p-1 border-r border-black ">횟수</td>
                     <td className="p-1 font-bold">주 {student.schedule.frequency} 회</td>
                   </tr>
                 </tbody>
@@ -116,7 +116,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
 
       {/* 현행 수준 */}
       <div className="flex border border-black border-b-0">
-        <div className="bg-slate-100 p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">현행 수준</div>
+        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">현행 수준</div>
         <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
           {isEditing ? (
             <textarea
@@ -130,7 +130,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
 
       {/* 치료 목표 */}
       <div className="flex border border-black mb-2">
-        <div className="bg-slate-100 p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 목표</div>
+        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 목표</div>
         <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
           {isEditing ? (
             <textarea
@@ -145,7 +145,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       {/* 회기별 일지 */}
       <table className="w-full border-collapse border border-black text-[0.75rem] mb-2">
         <thead>
-          <tr className="bg-slate-100">
+          <tr className="">
             <th className="border border-black p-1 w-20 text-center">날짜</th>
             <th className="border border-black p-1 text-center">치료 내용</th>
             <th className="border border-black p-1 text-center">아동 반응</th>
@@ -158,9 +158,8 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               <tr key={idx} className="h-14">
                 <td className="border border-black p-1 text-center font-bold text-[0.72rem] leading-snug">
                   {isEditing ? (
-                    <input
-                      type="text"
-                      className="w-full bg-indigo-50/30 border-none text-center outline-none text-[0.72rem]"
+                    <textarea
+                      className="w-full h-full min-h-[40px] bg-indigo-50/30 border-none text-center outline-none p-1 text-[0.72rem] resize-none"
                       value={session.date}
                       onChange={(e) => handleSessionChange(idx, 'date', e.target.value)}
                     />
@@ -218,7 +217,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
 
       {/* 치료 결과 */}
       <div className="flex border border-black">
-        <div className="bg-slate-100 p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 결과</div>
+        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 결과</div>
         <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
           {isEditing ? (
             <textarea
