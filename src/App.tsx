@@ -969,9 +969,10 @@ export default function App() {
           if (currentStudentInfo) {
             savedMonthly.sessions = savedMonthly.sessions.map(session => {
               if (session.date && !session.date.includes('\n')) {
-                const m = session.date.match(/(\d+)\/(\d+)/);
+                // Match "2026-05-04", "05/04", "5/4", etc.
+                const m = session.date.match(/(?:(?:20\d\d)[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
                 let txTime = '';
-                let fullDateStr = '';
+                let fullDateStr = session.date;
                 if (m) {
                   const mo = parseInt(m[1]);
                   const da = parseInt(m[2]);
@@ -990,7 +991,10 @@ export default function App() {
                   }
                 }
 
-                if (txTime && fullDateStr) {
+                // If it lacks parentheses, it was a raw date string, so reformat it entirely
+                if (!session.date.includes('(')) {
+                  session.date = formatSessionDate(fullDateStr, txTime);
+                } else if (txTime && fullDateStr) {
                   const timeStr = getSessionTime(currentStudentInfo, fullDateStr, txTime);
                   if (timeStr) session.date = `${session.date}\n${timeStr}`;
                 } else {
