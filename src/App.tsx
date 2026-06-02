@@ -832,6 +832,61 @@ export default function App() {
     }
   };
 
+
+  const getSessionTime = (info: any, dateStr: string, txTime: string): string => {
+    if (!txTime) return info?.scheduleTime || '';
+    
+    const parts = String(txTime).split(':');
+    if (parts.length < 2) return '';
+    const txMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+
+    let fixedTime = '';
+    if (info?.scheduleTimeHistory?.length > 0) {
+      const m = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+      if (m) {
+        const y = parseInt(m[1]);
+        const mo = parseInt(m[2]);
+        const matched = info.scheduleTimeHistory.find((h: any) => {
+          const from = h.fromYear * 100 + h.fromMonth;
+          const cur = y * 100 + mo;
+          if (h.toYear && h.toMonth) return cur >= from && cur <= (h.toYear * 100 + h.toMonth);
+          return cur >= from;
+        });
+        if (matched) fixedTime = matched.time;
+      }
+    }
+    if (!fixedTime) fixedTime = info?.scheduleTime || '';
+
+    if (fixedTime && fixedTime !== '정보 없음') {
+      const [start] = fixedTime.split('~');
+      if (start) {
+        const sParts = start.split(':');
+        if (sParts.length >= 2) {
+          const startMin = parseInt(sParts[0]) * 60 + parseInt(sParts[1]);
+          const expectedTxMin = startMin + 50; 
+          if (Math.abs(txMin - expectedTxMin) <= 60) {
+            return fixedTime;
+          }
+        }
+      }
+    }
+
+    let closestSlotStart = 9 * 60;
+    let minDiff = 9999;
+    for (let i = 0; i < 15; i++) {
+      const slotStart = 9 * 60 + i * 50;
+      const expectedTx = slotStart + 50;
+      const diff = Math.abs(txMin - expectedTx);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestSlotStart = slotStart;
+      }
+    }
+    
+    const fmt = (min) => `${Math.floor(min/60).toString().padStart(2, '0')}:${(min%60).toString().padStart(2, '0')}`;
+    return `${fmt(closestSlotStart)}~${fmt(closestSlotStart + 40)}`;
+  };
+
   const fetchData = async (student: Student, toneToUse: JournalTone = journalTone) => {
     setIsLoading(true);
     setAnnualData(null);
@@ -900,23 +955,34 @@ export default function App() {
           if (currentStudentInfo) {
             savedMonthly.sessions = savedMonthly.sessions.map(session => {
               if (session.date && !session.date.includes('\n')) {
-                let time = '';
-                if (currentStudentInfo.scheduleTimeHistory && currentStudentInfo.scheduleTimeHistory.length > 0) {
-                  const matched = currentStudentInfo.scheduleTimeHistory.find((h: any) => {
-                    const from = h.fromYear * 100 + h.fromMonth;
-                    const cur = selectedYear * 100 + selectedMonth;
-                    if (h.toYear && h.toMonth) {
-                      const to = h.toYear * 100 + h.toMonth;
-                      return cur >= from && cur <= to;
+                const m = session.date.match(/(\d+)\/(\d+)/);
+                let txTime = '';
+                let fullDateStr = '';
+                if (m) {
+                  const mo = parseInt(m[1]);
+                  const da = parseInt(m[2]);
+                  const record = allPaymentRecords.find(r => {
+                    if (r.studentName !== student.name) return false;
+                    const dStr = String(r.transactionDate).trim();
+                    const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+                    if (dm) {
+                      return parseInt(dm[2]) === mo && parseInt(dm[3]) === da && parseInt(dm[1]) === selectedYear;
                     }
-                    return cur >= from;
+                    return false;
                   });
-                  if (matched) time = matched.time;
+                  if (record) {
+                    txTime = record.transactionTime;
+                    fullDateStr = record.transactionDate;
+                  }
                 }
-                if (!time) time = currentStudentInfo.scheduleTime || student.schedule?.time || '';
-                
-                if (time && time !== '정보 없음' && time !== '') {
-                  session.date = `${session.date}\n${time}`;
+
+                if (txTime && fullDateStr) {
+                  const timeStr = getSessionTime(currentStudentInfo, fullDateStr, txTime);
+                  if (timeStr) session.date = `${session.date}\n${timeStr}`;
+                } else {
+                  // Fallback to fixed time if no transaction found
+                  const timeStr = getSessionTime(currentStudentInfo, `${selectedYear}-${selectedMonth}-01`, "");
+                  if (timeStr && timeStr !== '정보 없음') session.date = `${session.date}\n${timeStr}`;
                 }
               }
               return session;
@@ -953,34 +1019,9 @@ export default function App() {
       } else {
         const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
-        // 특정 날짜에 해당하는 수업 시간 반환
-        // scheduleTimeHistory 우선 → 없으면 scheduleTime 사용
-        // 특정 날짜에 해당하는 수업 시간 반환
-        // scheduleTimeHistory 우선 → 없으면 scheduleTime 사용
-        const getScheduleTimeForDate = (dateStr: string, info: any): string => {
-          if (info?.scheduleTimeHistory?.length > 0) {
-            const m = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-            if (m) {
-              const y = parseInt(m[1]);
-              const mo = parseInt(m[2]);
-              // 해당 날짜가 속하는 기간의 시간을 찾기
-              const matched = info.scheduleTimeHistory.find((h: any) => {
-                const from = h.fromYear * 100 + h.fromMonth;
-                const cur = y * 100 + mo;
-                if (h.toYear && h.toMonth) {
-                  const to = h.toYear * 100 + h.toMonth;
-                  return cur >= from && cur <= to;
-                }
-                return cur >= from;
-              });
-              if (matched) return matched.time;
-            }
-          }
-          return info?.scheduleTime || student.schedule?.time || '';
-        };
-
+        
         // 날짜 문자열 포맷: M/D(요일)\n수업시간
-        const formatSessionDate = (dateStr: string): string => {
+        const formatSessionDate = (dateStr: string, txTime?: string): string => {
           const match = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
           if (match) {
             const month = parseInt(match[2]);
@@ -990,7 +1031,7 @@ export default function App() {
             
             // studentInfos 상태에서 현재 학생의 정보를 찾음
             const currentStudentInfo = studentInfos.find(info => info.name === student.name);
-            const time = getScheduleTimeForDate(dateStr, currentStudentInfo);
+            const time = getSessionTime(currentStudentInfo, dateStr, txTime || "");
             
             if (time && time !== '정보 없음' && time !== '') {
               return `${base}\n${time}`;
@@ -1022,14 +1063,14 @@ export default function App() {
           therapyPeriod: `${selectedYear}.3.~`,
           sessions: monthlyRecords.length > 0
             ? monthlyRecords.map(r => ({
-                date: formatSessionDate(r.transactionDate),
+                date: formatSessionDate(r.transactionDate, r.transactionTime),
                 content: '',
                 reaction: '',
                 consultation: ''
               }))
             : filteredDates.length > 0
               ? filteredDates.map(date => ({
-                  date: formatSessionDate(date),
+                  date: formatSessionDate(date, ""),
                   content: '',
                   reaction: '',
                   consultation: ''
