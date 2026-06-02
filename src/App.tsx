@@ -924,36 +924,26 @@ export default function App() {
       } else {
         const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
-        // 거래시간으로 수업 시작~종료 계산 (결제 후 역산: -50분 ~ -10분)
-        const calcSessionTime = (transactionTime: string): string => {
-          const parts = transactionTime.split(':');
-          if (parts.length < 2) return transactionTime;
-          const totalMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-          const startMin = totalMin - 50;
-          const endMin = totalMin - 10;
-          const fmt = (m: number) => {
-            const h = Math.floor(m / 60);
-            const min = m % 60;
-            return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
-          };
-          return `${fmt(startMin)}~${fmt(endMin)}`;
-        };
-
-        // 날짜 문자열 포맷: M/D(요일)\nHH:MM~HH:MM
-        const formatSessionDate = (dateStr: string, timeStr?: string): string => {
+        // 날짜 문자열 포맷: M/D(요일)\n수업시간(student.schedule.time)
+        // 결제 타이밍이 매번 달라 역산 방식은 부정확 → 학생별 고정 시간 사용
+        const formatSessionDate = (dateStr: string): string => {
           const match = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
           if (match) {
             const month = parseInt(match[2]);
             const day = parseInt(match[3]);
             const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
             const base = `${month}/${day}(${dayName})`;
-            if (timeStr) return `${base}\n${calcSessionTime(timeStr)}`;
+            // student.schedule.time이 설정되어 있으면 날짜 아래에 표시
+            const scheduleTime = student.schedule?.time;
+            if (scheduleTime && scheduleTime !== '정보 없음' && scheduleTime !== '') {
+              return `${base}\n${scheduleTime}`;
+            }
             return base;
           }
           return dateStr;
         };
 
-        // 해당 월 결제 기록 필터링 (시간 포함)
+        // 해당 월 결제 기록 필터링
         const monthlyRecords = allPaymentRecords
           .filter(r => {
             if (r.studentName !== student.name) return false;
@@ -975,7 +965,7 @@ export default function App() {
           therapyPeriod: `${selectedYear}.3.~`,
           sessions: monthlyRecords.length > 0
             ? monthlyRecords.map(r => ({
-                date: formatSessionDate(r.transactionDate, r.transactionTime),
+                date: formatSessionDate(r.transactionDate),
                 content: '',
                 reaction: '',
                 consultation: ''
