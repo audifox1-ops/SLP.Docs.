@@ -393,7 +393,7 @@ export default function App() {
             const workbook = XLSX.read(data, { type: 'array' });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
-            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
             
             const parsedData = findHeaderAndParse(rows);
             if (!parsedData) {
@@ -530,7 +530,7 @@ export default function App() {
 
     const monthlyAreas: Record<number, string> = {};
     studentRecords.forEach(r => {
-      const dateStr = String(r.transactionDate);
+      const dateStr = normalizeDateStr(String(r.transactionDate));
       const match = dateStr.match(/(\d{4})[-./\s년]+(\d{1,2})/);
       if (match) {
         const m = parseInt(match[2]);
@@ -833,6 +833,20 @@ export default function App() {
   };
 
 
+
+  const normalizeDateStr = (dStr: string) => {
+    const str = String(dStr).trim();
+    if (/^\d{5}$/.test(str)) {
+      const serial = parseInt(str, 10);
+      const dateObj = new Date((serial - 25569) * 86400 * 1000);
+      const y = dateObj.getUTCFullYear();
+      const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return str;
+  };
+
   const getSessionTime = (info: any, dateStr: string, txTime: string): string => {
     if (!txTime) return info?.scheduleTime || '';
     
@@ -902,7 +916,7 @@ export default function App() {
       // FIX: Ensure we handle various date formats correctly for filtering
       const filteredDates = student.paymentDates.filter(d => {
         try {
-          const dStr = String(d).trim();
+          const dStr = normalizeDateStr(String(d));
           // Match YYYY or YY followed by separator (including Korean chars) and then MM or M
           const match = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
           if (match) {
@@ -963,7 +977,7 @@ export default function App() {
                   const da = parseInt(m[2]);
                   const record = allPaymentRecords.find(r => {
                     if (r.studentName !== student.name) return false;
-                    const dStr = String(r.transactionDate).trim();
+                    const dStr = normalizeDateStr(r.transactionDate);
                     const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
                     if (dm) {
                       return parseInt(dm[2]) === mo && parseInt(dm[3]) === da && parseInt(dm[1]) === selectedYear;
@@ -1020,9 +1034,12 @@ export default function App() {
         const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 
         
+        
+
         // 날짜 문자열 포맷: M/D(요일)\n수업시간
         const formatSessionDate = (dateStr: string, txTime?: string): string => {
-          const match = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+          const normDateStr = normalizeDateStr(dateStr);
+          const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
           if (match) {
             const month = parseInt(match[2]);
             const day = parseInt(match[3]);
@@ -1031,21 +1048,21 @@ export default function App() {
             
             // studentInfos 상태에서 현재 학생의 정보를 찾음
             const currentStudentInfo = studentInfos.find(info => info.name === student.name);
-            const time = getSessionTime(currentStudentInfo, dateStr, txTime || "");
+            const time = getSessionTime(currentStudentInfo, normDateStr, txTime || "");
             
             if (time && time !== '정보 없음' && time !== '') {
               return `${base}\n${time}`;
             }
             return base;
           }
-          return dateStr;
+          return normDateStr;
         };
 
         // 해당 월 결제 기록 필터링
         const monthlyRecords = allPaymentRecords
           .filter(r => {
             if (r.studentName !== student.name) return false;
-            const dStr = String(r.transactionDate).trim();
+            const dStr = normalizeDateStr(r.transactionDate);
             const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
             if (m) {
               const y = m[1];
@@ -1149,7 +1166,7 @@ export default function App() {
         // Robust Date Filtering
         const filteredDates = selectedStudent.paymentDates.filter(d => {
             try {
-              const dStr = String(d).trim();
+              const dStr = normalizeDateStr(String(d));
               // 지원하는 형식: 2026.04.17, 2026-04-17, 26/04/17, 2026년 4월 17일, 4/17 등
               const match = dStr.match(/(\d{2,4})?[-./\s년]*(\d{1,2})[-./\s월]+(\d{1,2})/);
               
