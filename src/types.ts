@@ -74,6 +74,7 @@ export interface MonthlyJournalData {
     consultation: string;
   }[];
   result: string;
+  therapyPeriod?: string;
 }
 
 export type JournalTone = 'normal' | 'academic' | 'expert';

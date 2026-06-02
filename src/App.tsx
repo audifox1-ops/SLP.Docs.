@@ -903,90 +903,41 @@ export default function App() {
         }
       }
 
-      // AI Generation with Mock Fallback
-      let annual: AnnualPlanData | null = null;
-      let monthly: MonthlyJournalData | null = null;
-
-      try {
-        // 1. Generate Annual Plan first to get the monthly goal context
-        // Check if annualData exists in state first to avoid redundant AI calls
-        let currentAnnual = annualData;
-        if (!currentAnnual) {
-          const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
-          if (annualDoc.exists()) {
-            currentAnnual = annualDoc.data() as AnnualPlanData;
-          } else {
-            currentAnnual = await generateAnnualPlan(student, toneToUse, student.referenceData);
-          }
-          setAnnualData(currentAnnual);
-        }
-        annual = currentAnnual;
-        
-        // 2. Extract the goal for the selected month
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
-        
-        // 3. Generate Monthly Journal using the extracted goal
-        if (filteredDates.length > 0) {
-          monthly = await generateMonthlyJournal(studentWithFilteredDates, selectedMonth, monthlyGoal, toneToUse, student.referenceData);
-        } else {
-          monthly = {
-            currentLevel: "해당 월의 치료 내역이 없습니다.",
-            monthlyGoal: monthlyGoal,
-            sessions: [],
-            result: "내역 없음"
-          };
-        }
-      } catch (aiError: any) {
-        console.warn("AI generation failed, using mock data:", aiError);
-        
-        // Quota check (429)
-        if (aiError.message?.includes('429') || JSON.stringify(error).includes('429')) {
-          setUploadStatus({ 
-            type: 'error', 
-            message: 'Gemini API 할당량이 초과되었습니다(일일 20회). 잠시 후 다시 시도하거나 나중에 이용해 주세요. 현재는 임시 데이터로 표시됩니다.' 
-          });
-          setTimeout(() => setUploadStatus(null), 10000);
-        }
-        // Fallback to mock data if AI fails
-        annual = {
-          currentLevel: ["전문적인 관찰 및 평가가 필요함.", "기초적인 의사소통 능력 탐색 중임."],
-          longTermGoals: ["전반적인 치료 목표 달성을 위한 기초 다지기.", "상호작용 및 표현 능력 향상."],
+      // Firebase에 저장된 데이터가 없는 경우 → 빈 양식을 바로 표시 (AI 자동 생성 안 함)
+      // 연간계획서도 저장된 게 없으면 빈 양식으로 표시
+      if (activeTab === 'annual') {
+        const emptyAnnual: AnnualPlanData = {
+          currentLevel: ['', ''],
+          longTermGoals: ['', ''],
           monthlyGoals: Array.from({ length: 12 }).map((_, i) => ({
-            month: (i + 2) % 12 + 1,
-            goal: "월간 치료 목표 수립 및 이행",
-            content: "영역별 맞춤 치료 프로그램 실시"
+            month: i < 10 ? i + 3 : i - 9,
+            goal: '',
+            content: '',
+            area: ''
           }))
         };
-        
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
-        monthly = {
-          currentLevel: "현재 치료 목표에 따른 활동을 수행 중임.",
-          monthlyGoal: monthlyGoal,
-          sessions: generateMockSessions(filteredDates, student.treatmentArea, monthlyGoal),
-          result: "긍정적인 변화가 관찰되며 지속적인 지도가 필요함."
+        setAnnualData(emptyAnnual);
+        setIsEditing(true); // 빈 양식은 바로 편집 모드로
+      } else {
+        // 월간일지 빈 양식 - 결제 날짜 기반으로 세션 행 생성
+        const emptyMonthly: MonthlyJournalData = {
+          currentLevel: '',
+          monthlyGoal: '',
+          therapyPeriod: `${selectedYear}.3.~`,
+          sessions: filteredDates.length > 0
+            ? filteredDates.map(date => ({
+                date,
+                content: '',
+                reaction: '',
+                consultation: ''
+              }))
+            : [{ date: '', content: '', reaction: '', consultation: '' }],
+          result: ''
         };
-      }
-      
-      if (!annual || !monthly) {
-        throw new Error('데이터를 생성하지 못했습니다.');
+        setMonthlyData(emptyMonthly);
+        setIsEditing(true); // 빈 양식은 바로 편집 모드로
       }
 
-      // Ensure all filtered dates are present in sessions even if AI missed some
-      if (monthly && monthly.sessions) {
-        const monthlyGoal = annual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
-        const sessionDates = new Set(monthly.sessions.map(s => s.date));
-        const missingDates = filteredDates.filter(d => !sessionDates.has(d));
-        
-        if (missingDates.length > 0) {
-          const mockMissing = generateMockSessions(missingDates, student.treatmentArea, monthlyGoal);
-          monthly.sessions = [...monthly.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
-        }
-      }
-      
-      console.log("월별일지 전달 데이터:", monthly?.sessions);
-      
-      setAnnualData(annual);
-      setMonthlyData(monthly);
     } catch (error) {
       console.error("Data fetch error:", error);
       alert('서류 데이터를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
@@ -1636,13 +1587,13 @@ export default function App() {
                         </button>
                       )}
 
-                      {activeTab === 'monthly' && (!monthlyData || monthlyData.sessions.length === 0) && (
+                      {activeTab === 'monthly' && (
                         <button 
                           onClick={() => handleGenerateDraft()}
                           className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
                         >
                           <Sparkles className="w-4 h-4" />
-                          가상 일지 생성
+                          AI로 자동 생성
                         </button>
                       )}
                     </div>

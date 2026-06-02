@@ -78,7 +78,18 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                 <tbody className="text-[0.65rem]">
                   <tr>
                     <td className="p-1 border-b border-r border-black bg-slate-50 w-16">치료 기간</td>
-                    <td className="p-1 border-b border-black font-bold">{year}.3.~</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          className="w-full bg-indigo-50/30 border-none outline-none font-bold text-[0.65rem]"
+                          value={data.therapyPeriod ?? `${year}.3.~`}
+                          onChange={(e) => handleChange('therapyPeriod', e.target.value)}
+                        />
+                      ) : (
+                        data.therapyPeriod ?? `${year}.3.~`
+                      )}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black bg-slate-50">치료사</td>
