@@ -75,7 +75,7 @@ async function generateJsonFromServer<T>(prompt: string): Promise<T> {
   return safeJsonParse(payload.text) as T;
 }
 
-export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert', referenceData?: string): Promise<AnnualPlanData> {
+export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert', referenceData?: string, customPrompt?: string): Promise<AnnualPlanData> {
   const areaInfo = student.monthlyAreas 
     ? Object.entries(student.monthlyAreas).map(([m, a]) => `${m}월: ${a}`).join(", ")
     : student.treatmentArea;
@@ -100,6 +100,9 @@ export async function generateAnnualPlan(student: Student, tone: JournalTone = '
       당신은 10년 차 1급 전문 언어재활사 및 미술치료사입니다. 아래 학생의 정보를 바탕으로 교육청 제출용 '연간 계획서'를 작성하세요.
       
       ${toneInstruction}
+
+      ${customPrompt ? `[사용자 지정 작성 템플릿]
+${customPrompt.substring(0, 5000)}` : ''}
       
       [학생 정보]
       - 이름: ${student.name}
@@ -149,7 +152,7 @@ ${referenceData.substring(0, 10000)}
   }
 }
 
-export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal: string, tone: JournalTone = 'normal', referenceData?: string): Promise<MonthlyJournalData> {
+export async function generateMonthlyJournal(student: Student, month: number, monthlyGoal: string, tone: JournalTone = 'normal', referenceData?: string, customPrompt?: string): Promise<MonthlyJournalData> {
   const effectiveGoal = monthlyGoal || "연간계획서에 목표가 설정되지 않았습니다.";
   const currentArea = student.monthlyAreas?.[month] || student.treatmentArea;
   
@@ -175,6 +178,9 @@ export async function generateMonthlyJournal(student: Student, month: number, mo
       당신은 10년 차 1급 전문 언어재활사 및 미술치료사입니다. 전달받은 '월 치료 목표'를 바탕으로 주어진 [학생 정보]를 활용해 월간 치료 일지를 작성하세요.
       
       ${toneInstruction}
+
+      ${customPrompt ? `[사용자 지정 작성 템플릿]
+${customPrompt.substring(0, 5000)}` : ''}
       
       [학생 정보]
       - 이름: ${student.name}

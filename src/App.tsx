@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Shield, Layers3, ArchiveRestore, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -14,18 +14,18 @@ import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { db, OperationType, handleFirestoreError } from './firebase';
-import { 
-  collection, 
-  addDoc, 
+import {
+  collection,
+  addDoc,
   getDoc,
-  getDocs, 
-  query, 
-  where, 
-  serverTimestamp, 
-  onSnapshot, 
-  doc, 
-  setDoc, 
-  deleteDoc, 
+  getDocs,
+  query,
+  where,
+  serverTimestamp,
+  onSnapshot,
+  doc,
+  setDoc,
+  deleteDoc,
   updateDoc,
   writeBatch
 } from 'firebase/firestore';
@@ -42,9 +42,52 @@ interface RawRecord {
   [key: string]: any;
 }
 
+interface DocumentHistoryEntry {
+  id: string;
+  docType: 'annual' | 'monthly';
+  docKey: string;
+  studentName: string;
+  year?: number;
+  month?: number;
+  data: AnnualPlanData | MonthlyJournalData;
+  createdAtMs: number;
+  label?: string;
+}
+
+interface DraftItem {
+  key: string;
+  type: 'annual' | 'monthly';
+  studentName: string;
+  year?: number;
+  month?: number;
+}
+
+interface PromptTemplates {
+  annual: string;
+  monthly: string;
+}
+
+interface BatchMonthResult {
+  month: number;
+  status: 'pending' | 'running' | 'saved' | 'skipped' | 'fallback' | 'error';
+  message: string;
+}
+
+interface QualityIssue {
+  level: 'error' | 'warning';
+  label: string;
+}
+
+type DocumentStatuses = Record<string, { annual: boolean; monthly: Record<string, boolean> }>;
+
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error && error.message ? error.message : fallback
 );
+
+const createDefaultPromptTemplates = (): PromptTemplates => ({
+  annual: '현행 수준은 관찰 가능한 행동 중심으로 작성하고, 월별 목표는 실제 치료 영역과 연결해 간결하게 작성한다.',
+  monthly: '치료 내용과 아동 반응은 회기별로 겹치지 않게 작성하고, 공식 문서에 맞는 간결한 종결어미를 사용한다.'
+});
 
 export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,22 +102,42 @@ export default function App() {
   const [journalTone, setJournalTone] = useState<JournalTone>('expert');
   const [isEditing, setIsEditing] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  
+
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportAction, setExportAction] = useState<'print' | 'download' | null>(null);
   const [exportMonthlyDataList, setExportMonthlyDataList] = useState<{ month: number; year: number; data: MonthlyJournalData }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportIncludeAnnual, setExportIncludeAnnual] = useState(true);
-  
+
   // Student Info Management State
   const [studentInfos, setStudentInfos] = useState<StudentInfo[]>([]);
   const [allPaymentRecords, setAllPaymentRecords] = useState<PaymentRecord[]>([]);
   const hasInitialLoaded = useRef(false);
-  
+  const skipNextFetchRef = useRef(false);
+
   // Student List State
   const [fullStudentList, setFullStudentList] = useState<string[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<string[]>([]);
+  const [documentStatuses, setDocumentStatuses] = useState<DocumentStatuses>({});
+  const [historyEntries, setHistoryEntries] = useState<DocumentHistoryEntry[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplates>(() => {
+    try {
+      const stored = localStorage.getItem('prompt_templates');
+      return stored ? { ...createDefaultPromptTemplates(), ...JSON.parse(stored) } : createDefaultPromptTemplates();
+    } catch {
+      return createDefaultPromptTemplates();
+    }
+  });
+  const [privacyMode, setPrivacyMode] = useState(() => localStorage.getItem('privacy_mode') === 'true');
+  const [showBatchPanel, setShowBatchPanel] = useState(false);
+  const [batchResults, setBatchResults] = useState<BatchMonthResult[]>([]);
+  const [isBatchGenerating, setIsBatchGenerating] = useState(false);
+  const [preflightIssues, setPreflightIssues] = useState<string[]>([]);
 
   // Firestore Listeners
   useEffect(() => {
@@ -100,12 +163,12 @@ export default function App() {
       next: (snapshot) => {
         const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentRecord));
         setAllPaymentRecords(records);
-        
+
         // Auto-Load Notification
         if (!hasInitialLoaded.current && records.length > 0) {
-          setUploadStatus({ 
-            type: 'success', 
-            message: `기존 치료/결제 내역 ${records.length}건을 불러왔습니다.` 
+          setUploadStatus({
+            type: 'success',
+            message: `기존 치료/결제 내역 ${records.length}건을 불러왔습니다.`
           });
           hasInitialLoaded.current = true;
           setTimeout(() => setUploadStatus(null), 4000);
@@ -124,9 +187,49 @@ export default function App() {
       }
     });
 
+    const unsubAnnualDocs = onSnapshot(collection(db, 'annual_plans'), {
+      next: (snapshot) => {
+        setDocumentStatuses(prev => {
+          const next: DocumentStatuses = {};
+          Object.entries(prev as DocumentStatuses).forEach(([name, status]) => {
+            next[name] = { annual: false, monthly: { ...status.monthly } };
+          });
+          snapshot.docs.forEach(docSnap => {
+            const studentName = docSnap.id;
+            next[studentName] = next[studentName] || { annual: false, monthly: {} };
+            next[studentName].annual = true;
+          });
+          return next;
+        });
+      },
+      error: (err) => console.error('Annual plan status listener error:', err)
+    });
+
+    const unsubMonthlyDocs = onSnapshot(collection(db, 'monthly_journals'), {
+      next: (snapshot) => {
+        setDocumentStatuses(prev => {
+          const next: DocumentStatuses = {};
+          Object.entries(prev as DocumentStatuses).forEach(([name, status]) => {
+            next[name] = { annual: status.annual, monthly: {} };
+          });
+          snapshot.docs.forEach(docSnap => {
+            const match = docSnap.id.match(/^(.+)_(\d{4})_(\d{1,2})$/);
+            if (!match) return;
+            const [, studentName, year, month] = match;
+            next[studentName] = next[studentName] || { annual: false, monthly: {} };
+            next[studentName].monthly[`${year}_${month}`] = true;
+          });
+          return next;
+        });
+      },
+      error: (err) => console.error('Monthly journal status listener error:', err)
+    });
+
     return () => {
       unsubStudents();
       unsubPayments();
+      unsubAnnualDocs();
+      unsubMonthlyDocs();
     };
   }, []);
 
@@ -207,6 +310,46 @@ export default function App() {
     }
   }, [annualData, monthlyData, activeTab, selectedStudent, isEditing, selectedYear, selectedMonth]);
 
+  useEffect(() => {
+    localStorage.setItem('prompt_templates', JSON.stringify(promptTemplates));
+  }, [promptTemplates]);
+
+  useEffect(() => {
+    localStorage.setItem('privacy_mode', String(privacyMode));
+  }, [privacyMode]);
+
+  const refreshDraftItems = () => {
+    const drafts: DraftItem[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith('draft_annual_')) {
+        drafts.push({
+          key,
+          type: 'annual',
+          studentName: key.replace('draft_annual_', '')
+        });
+      } else if (key.startsWith('draft_monthly_')) {
+        const raw = key.replace('draft_monthly_', '');
+        const match = raw.match(/^(.+)_(\d{4})_(\d{1,2})$/);
+        if (match) {
+          drafts.push({
+            key,
+            type: 'monthly',
+            studentName: match[1],
+            year: Number(match[2]),
+            month: Number(match[3])
+          });
+        }
+      }
+    }
+    setDraftItems(drafts.sort((a, b) => a.studentName.localeCompare(b.studentName) || (a.month || 0) - (b.month || 0)));
+  };
+
+  useEffect(() => {
+    refreshDraftItems();
+  }, [annualData, monthlyData, isEditing, selectedStudent]);
+
   const handleAddStudentInfo = async (info: StudentInfo) => {
     if (studentInfos.some(s => s.name === info.name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
@@ -227,7 +370,7 @@ export default function App() {
       if (oldName !== info.name) {
         await deleteDoc(doc(db, 'students', oldName));
         await setDoc(doc(db, 'students', info.name), info);
-        
+
         // If the selected student's name was changed, update the selected student ID
         if (selectedStudent && selectedStudent.name === oldName) {
           setSelectedStudent(prev => prev ? { ...prev, id: info.name, name: info.name } : null);
@@ -287,9 +430,9 @@ export default function App() {
 
       try {
         await setDoc(doc(db, 'students', name), newInfo);
-        setUploadStatus({ 
-          type: 'success', 
-          message: '학생 정보가 등록되었습니다. [학생 정보 관리] 탭에서 나머지 정보를 수정해 주세요.' 
+        setUploadStatus({
+          type: 'success',
+          message: '학생 정보가 등록되었습니다. [학생 정보 관리] 탭에서 나머지 정보를 수정해 주세요.'
         });
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, 'students');
@@ -306,12 +449,12 @@ export default function App() {
 
   const handleResetAllData = async () => {
     if (!window.confirm("정말 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
-    
+
     setIsLoading(true);
     try {
       const q = collection(db, 'payment_records');
       const snapshot = await getDocs(q);
-      
+
       if (snapshot.empty) {
         setUploadStatus({ type: 'error', message: '삭제할 데이터가 없습니다.' });
         return;
@@ -369,7 +512,7 @@ export default function App() {
       const findHeaderAndParse = (rows: any[][]) => {
         const nameKeys = ['학생이름', '학생 이름', '이름', '성명', '성함', '대상자', '대상자명'];
         const dateKeys = ['거래일자', '거래 일자', '날짜', '결제일', '결제 일자', '일자', 'Date', '거래일'];
-        
+
         let headerRowIndex = -1;
         for (let i = 0; i < Math.min(rows.length, 10); i++) {
           const row = rows[i];
@@ -386,7 +529,7 @@ export default function App() {
 
         const headers = rows[headerRowIndex].map(h => String(h || '').trim());
         const dataRows = rows.slice(headerRowIndex + 1);
-        
+
         return dataRows.filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== '')).map(row => {
           const obj: any = {};
           headers.forEach((header, idx) => {
@@ -398,19 +541,19 @@ export default function App() {
 
       const validateData = (data: any[]) => {
         if (!data || data.length === 0) return { valid: false, message: '파일에 데이터가 없습니다.' };
-        
+
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
-        
+
         const nameKeys = ['학생이름', '학생 이름', '이름', '성명', '성함', '대상자', '대상자명'];
         const dateKeys = ['거래일자', '거래 일자', '날짜', '결제일', '결제 일자', '일자', 'Date', '거래일'];
-        
+
         const hasName = keys.some(k => nameKeys.includes(k));
         const hasDate = keys.some(k => dateKeys.includes(k));
-        
+
         if (!hasName) return { valid: false, message: "필수 항목인 '학생이름' 컬럼을 찾을 수 없습니다. (학생이름, 이름, 성명 등)" };
         if (!hasDate) return { valid: false, message: "필수 항목인 '거래일자' 컬럼을 찾을 수 없습니다. (거래일자, 날짜, 결제일 등)" };
-        
+
         return { valid: true };
       };
 
@@ -428,7 +571,7 @@ export default function App() {
 
             const processed = normalizeData(parsedData) as RawRecord[];
             const validation = validateData(processed);
-            
+
             if (!validation.valid) {
               setUploadStatus({ type: 'error', message: validation.message });
               setTimeout(() => setUploadStatus(null), 5000);
@@ -459,7 +602,7 @@ export default function App() {
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
-            
+
             const parsedData = findHeaderAndParse(rows);
             if (!parsedData) {
               setUploadStatus({ type: 'error', message: '필수 컬럼(학생이름, 거래일자)을 찾을 수 없습니다. 파일 형식을 확인해 주세요.' });
@@ -536,7 +679,7 @@ export default function App() {
         batch = writeBatch(db);
         pendingWrites = 0;
       };
-      
+
       for (const record of records) {
         const name = String(record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || '').trim();
         const date = String(record['거래일자'] || record['거래 일자'] || record['날짜'] || record['결제일'] || record['결제 일자'] || record['일자'] || record['Date'] || record['거래일'] || '').trim();
@@ -588,7 +731,7 @@ export default function App() {
         }
         // 거래시간이 있으면 HH:MM 앞 5자리만 저장
         if (timeStr) recordData.transactionTime = timeStr;
-        
+
         batch.set(newRecordRef, recordData, { merge: true }); // 기존 데이터 덮어쓰기(병합)
         pendingWrites++;
 
@@ -600,9 +743,9 @@ export default function App() {
       await commitPending();
 
       const cancelMsg = canceledCount > 0 ? ` (취소건 ${canceledCount}건 제외)` : '';
-      setUploadStatus({ 
-        type: 'success', 
-        message: `총 ${addedCount}건 신규 업로드, ${duplicateCount}건 덮어쓰기(업데이트) 완료.${cancelMsg}` 
+      setUploadStatus({
+        type: 'success',
+        message: `총 ${addedCount}건 신규 업로드, ${duplicateCount}건 덮어쓰기(업데이트) 완료.${cancelMsg}`
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'payment_records');
@@ -619,7 +762,7 @@ export default function App() {
       ...allPaymentRecords.map(r => r.studentName),
       ...studentInfos.map(s => s.name)
     ])).filter(Boolean).sort();
-    
+
     setFullStudentList(allNames);
     setFilteredStudents(
       allNames.filter(name => name.toLowerCase().includes(term))
@@ -634,14 +777,14 @@ export default function App() {
 
     // Get records from Firestore state
     const studentRecords = allPaymentRecords.filter(r => r.studentName === name);
-    
+
     // Look up student info in management system
     const info = studentInfos.find(s => s.name === name);
-    
+
     if (!info) {
-      setUploadStatus({ 
-        type: 'error', 
-        message: `'${name}' 학생의 기본 정보가 없습니다. [학생 정보 관리] 메뉴에서 먼저 정보를 등록해 주세요.` 
+      setUploadStatus({
+        type: 'error',
+        message: `'${name}' 학생의 기본 정보가 없습니다. [학생 정보 관리] 메뉴에서 먼저 정보를 등록해 주세요.`
       });
       setTimeout(() => setUploadStatus(null), 5000);
       return;
@@ -697,9 +840,9 @@ export default function App() {
     if (name) {
       handleStudentSelect(name);
     } else {
-      setUploadStatus({ 
-        type: 'error', 
-        message: `'${searchTerm}' 학생을 찾을 수 없습니다.` 
+      setUploadStatus({
+        type: 'error',
+        message: `'${searchTerm}' 학생을 찾을 수 없습니다.`
       });
       setTimeout(() => setUploadStatus(null), 5000);
     }
@@ -751,14 +894,14 @@ export default function App() {
     return dates.map((date, i) => {
       const baseContent = contents[i % contents.length];
       const baseReaction = mockReactions[i % mockReactions.length];
-      
+
       const hasGoal = monthlyGoal && monthlyGoal !== "연간계획서에 목표가 설정되지 않았습니다.";
-      
+
       // If monthlyGoal is provided, try to blend it in
-      const content = hasGoal 
+      const content = hasGoal
         ? `${monthlyGoal!.replace(/[함임다.]$/, "")} 목표 달성을 위해 ${baseContent}`
         : baseContent;
-        
+
       const reaction = hasGoal
         ? `${monthlyGoal!.replace(/[함임다.]$/, "")} 과정에서 ${baseReaction}`
         : baseReaction;
@@ -900,9 +1043,213 @@ export default function App() {
     return { rows, mismatchCount, paymentCount: payRecords.length, sessionCount: sessions.length };
   };
 
+  const getDocumentKey = (type: 'annual' | 'monthly' = activeTab) => {
+    if (!selectedStudent) return '';
+    return type === 'annual'
+      ? selectedStudent.name
+      : `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
+  };
+
+  const getGenericMonthlyPaymentRecords = (studentName: string, year: number, month: number) => {
+    const monthKey = String(month).padStart(2, '0');
+    return allPaymentRecords
+      .filter(record => {
+        if (record.studentName !== studentName) return false;
+        const dateKey = getDateKey(String(record.transactionDate), year);
+        return dateKey.startsWith(`${year}-${monthKey}-`);
+      })
+      .sort((a, b) => {
+        const aKey = `${getDateKey(String(a.transactionDate), year)}_${a.transactionTime || ''}`;
+        const bKey = `${getDateKey(String(b.transactionDate), year)}_${b.transactionTime || ''}`;
+        return aKey.localeCompare(bKey);
+      });
+  };
+
+  const saveDocumentHistory = async (
+    docType: 'annual' | 'monthly',
+    docKey: string,
+    data: AnnualPlanData | MonthlyJournalData,
+    meta: { year?: number; month?: number; label?: string } = {}
+  ) => {
+    if (!selectedStudent) return;
+    await addDoc(collection(db, 'document_history'), {
+      docType,
+      docKey,
+      studentName: selectedStudent.name,
+      year: meta.year ?? selectedYear,
+      month: meta.month ?? (docType === 'monthly' ? selectedMonth : null),
+      label: meta.label || '저장 전 버전',
+      data,
+      createdAtMs: Date.now(),
+      createdAt: serverTimestamp()
+    });
+  };
+
+  const loadDocumentHistory = async () => {
+    if (!selectedStudent) return;
+    const docType = activeTab;
+    const docKey = getDocumentKey(docType);
+    setIsLoading(true);
+    try {
+      const snapshot = await getDocs(query(collection(db, 'document_history'), where('docKey', '==', docKey)));
+      const entries = snapshot.docs
+        .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as DocumentHistoryEntry))
+        .filter(entry => entry.docType === docType)
+        .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+      setHistoryEntries(entries);
+      setShowHistoryModal(true);
+    } catch (error) {
+      console.error('History load error:', error);
+      setUploadStatus({ type: 'error', message: '이전 버전을 불러오는 중 오류가 발생했습니다.' });
+      setTimeout(() => setUploadStatus(null), 4000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const restoreHistoryEntry = (entry: DocumentHistoryEntry) => {
+    if (entry.docType === 'annual') {
+      setAnnualData(entry.data as AnnualPlanData);
+      setActiveTab('annual');
+    } else {
+      skipNextFetchRef.current = true;
+      setMonthlyData(entry.data as MonthlyJournalData);
+      if (entry.year) setSelectedYear(entry.year);
+      if (entry.month) setSelectedMonth(entry.month);
+      setActiveTab('monthly');
+    }
+    setIsEditing(true);
+    setShowHistoryModal(false);
+    setUploadStatus({ type: 'success', message: '이전 버전을 현재 편집본으로 복구했습니다. 저장해야 최종 반영됩니다.' });
+    setTimeout(() => setUploadStatus(null), 5000);
+  };
+
+  const getQualityIssues = (): QualityIssue[] => {
+    const issues: QualityIssue[] = [];
+
+    if (activeTab === 'annual') {
+      if (!annualData) return [{ level: 'error', label: '연간계획서 데이터가 없습니다.' }];
+      if (annualData.currentLevel.every(item => !item.trim())) issues.push({ level: 'warning', label: '현행 수준이 비어 있습니다.' });
+      if (annualData.longTermGoals.every(item => !item.trim())) issues.push({ level: 'warning', label: '장기 목표가 비어 있습니다.' });
+      if (annualData.monthlyGoals.length < 12) issues.push({ level: 'error', label: '월별 목표가 12개월보다 적습니다.' });
+      const blankMonths = annualData.monthlyGoals.filter(goal => !goal.goal.trim() || !goal.content.trim()).map(goal => goal.month);
+      if (blankMonths.length > 0) issues.push({ level: 'warning', label: `목표 또는 치료 내용이 빈 월: ${blankMonths.join(', ')}월` });
+      const longItems = [...annualData.currentLevel, ...annualData.longTermGoals, ...annualData.monthlyGoals.flatMap(goal => [goal.goal, goal.content])].filter(text => text.length > 160);
+      if (longItems.length > 0) issues.push({ level: 'warning', label: '긴 문장이 있어 A4 출력 시 넘칠 수 있습니다.' });
+    } else {
+      if (!monthlyData) return [{ level: 'error', label: '월별일지 데이터가 없습니다.' }];
+      if (!monthlyData.currentLevel.trim()) issues.push({ level: 'warning', label: '현행 수준이 비어 있습니다.' });
+      if (!monthlyData.monthlyGoal.trim()) issues.push({ level: 'warning', label: '월 치료 목표가 비어 있습니다.' });
+      if (!monthlyData.result.trim()) issues.push({ level: 'warning', label: '월 치료 결과가 비어 있습니다.' });
+      if (monthlyData.sessions.length === 0) issues.push({ level: 'error', label: '회기별 일지가 없습니다.' });
+      const missingSessionRows = monthlyData.sessions
+        .map((session, idx) => ({ session, idx }))
+        .filter(({ session }) => !session.date.trim() || !session.content.trim() || !session.reaction.trim())
+        .map(({ idx }) => idx + 1);
+      if (missingSessionRows.length > 0) issues.push({ level: 'warning', label: `날짜/내용/반응 누락 회기: ${missingSessionRows.join(', ')}회차` });
+      if (monthlyDateCheck && monthlyDateCheck.mismatchCount > 0) issues.push({ level: 'warning', label: `결제 기록과 일지 날짜 불일치 ${monthlyDateCheck.mismatchCount}건` });
+      if (monthlyData.sessions.some(session => session.content.length > 180 || session.reaction.length > 180)) {
+        issues.push({ level: 'warning', label: '회기별 문장이 길어 출력 시 넘칠 수 있습니다.' });
+      }
+    }
+
+    return issues;
+  };
+
+  const runPreflightChecks = async (): Promise<string[]> => {
+    const issues: string[] = [];
+    if (!selectedStudent) return ['학생이 선택되지 않았습니다.'];
+    if (!selectedStudent.school || selectedStudent.school === '정보 없음') issues.push('소속 학교 정보가 비어 있습니다.');
+    if (!selectedStudent.disabilityType) issues.push('장애 유형 정보가 비어 있습니다.');
+    if (!selectedStudent.treatmentArea) issues.push('치료 영역 정보가 비어 있습니다.');
+    if (!selectedStudent.therapistName) issues.push('치료사명이 비어 있습니다.');
+    if (activeTab === 'monthly' && getMonthlyPaymentRecords(selectedStudent.name).length === 0) {
+      issues.push(`${selectedYear}년 ${selectedMonth}월 결제/치료 기록이 없습니다. 가상 날짜가 사용될 수 있습니다.`);
+    }
+    if (activeTab === 'monthly' && annualData) {
+      const goal = annualData.monthlyGoals.find(g => g.month === selectedMonth)?.goal;
+      if (!goal) issues.push(`${selectedMonth}월 연간계획 목표가 비어 있습니다.`);
+    }
+
+    try {
+      const response = await fetch('/api/ai/status');
+      const status = await response.json();
+      if (!status.ok) {
+        issues.push(status.error?.userMessage || 'AI 상태 점검에 실패했습니다. 임시 초안 생성으로 대체될 수 있습니다.');
+      }
+    } catch (error) {
+      issues.push('AI 서버 상태를 확인하지 못했습니다. 임시 초안 생성으로 대체될 수 있습니다.');
+    }
+
+    setPreflightIssues(issues);
+    return issues;
+  };
+
+  const loadDraftItem = async (item: DraftItem) => {
+    const raw = localStorage.getItem(item.key);
+    if (!raw) return;
+    const info = studentInfos.find(s => s.name === item.studentName);
+    if (info) {
+      skipNextFetchRef.current = true;
+      await handleStudentSelect(item.studentName);
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (item.type === 'annual') {
+        setActiveTab('annual');
+        setAnnualData(parsed);
+      } else {
+        skipNextFetchRef.current = true;
+        setActiveTab('monthly');
+        if (item.year) setSelectedYear(item.year);
+        if (item.month) setSelectedMonth(item.month);
+        setMonthlyData(parsed);
+      }
+      setIsEditing(true);
+      setShowDraftModal(false);
+      setUploadStatus({ type: 'success', message: '임시저장 문서를 불러왔습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      setUploadStatus({ type: 'error', message: '임시저장 문서 형식이 올바르지 않습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    }
+  };
+
+  const deleteDraftItem = (item: DraftItem) => {
+    localStorage.removeItem(item.key);
+    refreshDraftItems();
+  };
+
+  const maskValue = (value: string) => {
+    if (!value) return value;
+    if (value.length <= 1) return '*';
+    return `${value[0]}${'*'.repeat(Math.min(value.length - 1, 4))}`;
+  };
+
+  const buildDisplayStudent = (student: Student): Student => {
+    if (!privacyMode) return student;
+    return {
+      ...student,
+      name: maskValue(student.name),
+      birthDate: student.birthDate ? `${student.birthDate.slice(0, 4)}-**-**` : '',
+      school: maskValue(student.school),
+      therapistName: maskValue(student.therapistName)
+    };
+  };
+
   const handleSaveDocument = async () => {
     if (!selectedStudent) return;
-    
+
+    const qualityIssues = getQualityIssues();
+    if (qualityIssues.length > 0) {
+      const confirmed = window.confirm(
+        `문서 품질 점검에서 ${qualityIssues.length}개 항목이 확인되었습니다.\n\n` +
+        qualityIssues.map(issue => `- ${issue.label}`).join('\n') +
+        `\n\n그래도 저장하시겠습니까?`
+      );
+      if (!confirmed) return;
+    }
+
     // ── 저장 권한 강화: 월간일지 날짜 검증 ──
     if (activeTab === 'monthly' && monthlyData) {
       const yearStr = selectedYear.toString();
@@ -947,14 +1294,26 @@ export default function App() {
     try {
       if (activeTab === 'annual' && annualData) {
         // Save Annual Plan
-        await setDoc(doc(db, 'annual_plans', selectedStudent.name), annualData);
+        const annualRef = doc(db, 'annual_plans', selectedStudent.name);
+        const previous = await getDoc(annualRef);
+        if (previous.exists()) {
+          await saveDocumentHistory('annual', selectedStudent.name, previous.data() as AnnualPlanData, { year: selectedYear });
+        }
+        await setDoc(annualRef, annualData);
         localStorage.removeItem(`draft_annual_${selectedStudent.name}`); // 저장 후 임시저장 삭제
+        refreshDraftItems();
         setUploadStatus({ type: 'success', message: '연간계획서가 성공적으로 저장되었습니다.' });
       } else if (activeTab === 'monthly' && monthlyData) {
         // Save Monthly Journal
         const docId = `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
-        await setDoc(doc(db, 'monthly_journals', docId), monthlyData);
+        const monthlyRef = doc(db, 'monthly_journals', docId);
+        const previous = await getDoc(monthlyRef);
+        if (previous.exists()) {
+          await saveDocumentHistory('monthly', docId, previous.data() as MonthlyJournalData, { year: selectedYear, month: selectedMonth });
+        }
+        await setDoc(monthlyRef, monthlyData);
         localStorage.removeItem(`draft_monthly_${docId}`); // 저장 후 임시저장 삭제
+        refreshDraftItems();
         setUploadStatus({ type: 'success', message: `${selectedMonth}월 치료일지가 성공적으로 저장되었습니다.` });
       }
       setIsEditing(false); // Exit editing mode after saving
@@ -975,8 +1334,8 @@ export default function App() {
         referenceFileName: fileName
       });
       // 2. 로컬 상태 동기화
-      setStudentInfos(prev => prev.map(s => 
-        s.name === studentName 
+      setStudentInfos(prev => prev.map(s =>
+        s.name === studentName
           ? { ...s, referenceData, referenceFileName: fileName }
           : s
       ));
@@ -1016,12 +1375,12 @@ export default function App() {
         });
 
         // 로컬 상태 동기화
-        setStudentInfos(prev => prev.map(s => 
-          s.name === studentName 
+        setStudentInfos(prev => prev.map(s =>
+          s.name === studentName
             ? { ...s, attachments: [...(s.attachments || []), newAttachment] }
             : s
         ));
-        
+
         // 만약 선택된 학생이면 즉시 반영
         if (selectedStudent?.name === studentName) {
           setSelectedStudent(prev => prev ? {
@@ -1030,7 +1389,7 @@ export default function App() {
           } : null);
         }
       }
-      
+
       setUploadStatus({ type: 'success', message: '첨부파일이 성공적으로 업로드되었습니다.' });
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
@@ -1060,12 +1419,12 @@ export default function App() {
         });
 
         // 3. 로컬 상태 동기화
-        setStudentInfos(prev => prev.map(s => 
-          s.name === studentName 
+        setStudentInfos(prev => prev.map(s =>
+          s.name === studentName
             ? { ...s, attachments: updatedAttachments }
             : s
         ));
-        
+
         if (selectedStudent?.name === studentName) {
           setSelectedStudent(prev => prev ? {
             ...prev,
@@ -1085,8 +1444,9 @@ export default function App() {
 
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
-    
+
     setIsLoading(true);
+    await runPreflightChecks();
     const yearStr = selectedYear.toString();
     const monthlyPayRecords = allPaymentRecords
       .filter(r => {
@@ -1121,36 +1481,36 @@ export default function App() {
 
     try {
       const studentWithDates = { ...selectedStudent, paymentDates };
-      
+
       // 1. 연간계획서 목표 조회
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData);
+        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData, promptTemplates.annual);
         setAnnualData(currentAnnual);
       }
-      
+
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
-      
-      const monthly = await generateMonthlyJournal(studentWithDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData);
+
+      const monthly = await generateMonthlyJournal(studentWithDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData, promptTemplates.monthly);
 
       // AI가 반환한 세션 날짜를 반드시 실제 결제 날짜로 교체
       const currentStudentInfo = studentInfos.find(info => info.name === selectedStudent.name);
-      
+
       if (monthlyPayRecords.length > 0) {
         // 실제 결제 기록이 있으면 날짜를 100% 결제 기록 기준으로 설정
         // 단, 결제 기록이 3회여도 4주차 내용이 있다면 날짜를 빈칸으로 두고 내용은 유지
         const mergedSessions = [];
         const maxSessions = Math.max(monthlyPayRecords.length, 4);
-        
+
         for (let i = 0; i < maxSessions; i++) {
           const r = monthlyPayRecords[i];
           const aiSession = monthly.sessions[i] || { content: '', reaction: '', consultation: '' };
-          
+
           let dateStr = '';
           if (r) {
             dateStr = formatSessionDate(r.transactionDate, r.transactionTime || '', selectedStudent.name);
           }
-          
+
           mergedSessions.push({
             date: dateStr, // 결제 기록 없으면 빈칸 (사용자가 직접 클릭해서 날짜 입력 가능)
             content: aiSession.content,
@@ -1182,7 +1542,7 @@ export default function App() {
       }
 
       setMonthlyData(monthly);
-      
+
       const msg = monthlyPayRecords.length > 0
         ? `AI 일지가 생성되었습니다. (실제 수업날짜 ${monthlyPayRecords.length}회 기준)`
         : '가상 일지가 생성되었습니다. (결제 내역 없음 - 날짜 확인 후 저장하세요)';
@@ -1208,6 +1568,87 @@ export default function App() {
     }
   };
 
+  const handleBatchGenerateMonthly = async () => {
+    if (!selectedStudent) return;
+    setIsBatchGenerating(true);
+    setShowBatchPanel(true);
+
+    const months = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2];
+    setBatchResults(months.map(month => ({ month, status: 'pending', message: '대기 중' })));
+
+    try {
+      let currentAnnual = annualData;
+      if (!currentAnnual) {
+        currentAnnual = await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual);
+        setAnnualData(currentAnnual);
+      }
+
+      for (const month of months) {
+        setBatchResults(prev => prev.map(item => item.month === month ? { ...item, status: 'running', message: '생성 중' } : item));
+        const docId = `${selectedStudent.name}_${selectedYear}_${month}`;
+        const existing = await getDoc(doc(db, 'monthly_journals', docId));
+        if (existing.exists()) {
+          setBatchResults(prev => prev.map(item => item.month === month ? { ...item, status: 'skipped', message: '저장본 있음' } : item));
+          continue;
+        }
+
+        const records = getGenericMonthlyPaymentRecords(selectedStudent.name, selectedYear, month);
+        if (records.length === 0) {
+          setBatchResults(prev => prev.map(item => item.month === month ? { ...item, status: 'skipped', message: '결제 기록 없음' } : item));
+          continue;
+        }
+
+        const promptDates = records.map(record => record.transactionDate);
+        let paddedDates = [...promptDates];
+        let fallbackDay = 28;
+        while (paddedDates.length < 4) {
+          paddedDates.push(`${selectedYear}-${String(month).padStart(2, '0')}-${String(fallbackDay).padStart(2, '0')}`);
+          fallbackDay--;
+        }
+
+        const monthlyGoal = currentAnnual.monthlyGoals.find(goal => goal.month === month)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
+        const studentWithDates = { ...selectedStudent, paymentDates: paddedDates };
+        let monthly: MonthlyJournalData;
+        let usedFallback = false;
+
+        try {
+          monthly = await generateMonthlyJournal(studentWithDates, month, monthlyGoal, journalTone, selectedStudent.referenceData, promptTemplates.monthly);
+        } catch (error) {
+          console.error(`Batch monthly generation failed for ${month}:`, error);
+          monthly = buildFallbackMonthlyJournal(selectedStudent, month, records, paddedDates, monthlyGoal);
+          usedFallback = true;
+        }
+
+        const maxSessions = Math.max(records.length, monthly.sessions.length, 4);
+        monthly.sessions = Array.from({ length: maxSessions }).map((_, idx) => {
+          const record = records[idx];
+          const session = monthly.sessions[idx] || { date: '', content: '', reaction: '', consultation: '' };
+          return {
+            date: record ? formatSessionDate(record.transactionDate, record.transactionTime || '', selectedStudent.name) : '',
+            content: session.content,
+            reaction: session.reaction,
+            consultation: session.consultation || '가정 내에서의 연계 활동 및 지도 방법 안내함.'
+          };
+        });
+
+        await setDoc(doc(db, 'monthly_journals', docId), monthly);
+        setBatchResults(prev => prev.map(item => item.month === month ? {
+          ...item,
+          status: usedFallback ? 'fallback' : 'saved',
+          message: usedFallback ? '임시 초안 저장' : 'AI 생성 저장'
+        } : item));
+      }
+
+      setUploadStatus({ type: 'success', message: '월별일지 일괄 생성이 완료되었습니다.' });
+    } catch (error) {
+      console.error('Batch generation error:', error);
+      setUploadStatus({ type: 'error', message: getErrorMessage(error, '월별일지 일괄 생성 중 오류가 발생했습니다.') });
+    } finally {
+      setIsBatchGenerating(false);
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
 
 
   const normalizeDateStr = (dStr: string) => {
@@ -1226,7 +1667,7 @@ export default function App() {
   const getSessionTime = (info: any, dateStr: string, txTime: string): string => {
     // txTime이 없으면 등록된 scheduleTime 반환
     if (!txTime) return info?.scheduleTime || '';
-    
+
     const parts = String(txTime).split(':');
     if (parts.length < 2) return '';
     const txMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
@@ -1269,10 +1710,10 @@ export default function App() {
     // 실제 패턴: 수업은 10분 단위 시작(9:00, 9:10 ... 18:30), 40분 수업
     // 결제는 수업 종료(시작+40분) 후 0~20분 이내에 발생
     const fmt = (min: number) => `${Math.floor(min/60).toString().padStart(2, '0')}:${(min%60).toString().padStart(2, '0')}`;
-    
+
     let bestSlot: number | null = null;
     let minDiff = 9999;
-    
+
     // 9:00 ~ 18:30까지 10분 단위 슬롯
     for (let slotStart = 9 * 60; slotStart <= 18 * 60 + 30; slotStart += 10) {
       const sessionEnd = slotStart + 40; // 수업 종료 = 시작 + 40분
@@ -1285,7 +1726,7 @@ export default function App() {
         }
       }
     }
-    
+
     // 범위 내 슬롯을 못 찾으면 가장 가까운 슬롯 사용 (범위 30분으로 확장)
     if (bestSlot === null) {
       for (let slotStart = 9 * 60; slotStart <= 18 * 60 + 30; slotStart += 10) {
@@ -1297,7 +1738,7 @@ export default function App() {
         }
       }
     }
-    
+
     if (bestSlot === null) return '';
     return `${fmt(bestSlot)}~${fmt(bestSlot + 40)}`;
   };
@@ -1330,13 +1771,13 @@ export default function App() {
     setAnnualData(null);
     setMonthlyData(null);
     setIsEditing(false); // Reset edit mode on student/tab change
-    
+
     try {
       // More robust date filtering by year and month
       const yearStr = selectedYear.toString();
       const monthStr = selectedMonth.toString();
       const paddedMonthStr = monthStr.padStart(2, '0');
-      
+
       // FIX: Ensure we handle various date formats correctly for filtering
       const filteredDates = student.paymentDates.filter(d => {
         try {
@@ -1346,15 +1787,15 @@ export default function App() {
           if (match) {
             const y = match[1];
             const m = match[2];
-            
+
             // Check year (handle 2-digit year if necessary, but usually 4)
             const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
             // Check month
             const monthMatch = parseInt(m, 10) === selectedMonth;
-            
+
             return yearMatch && monthMatch;
           }
-          
+
           // Fallback for other formats
           const parts = dStr.split(/[-./\s년월일]+/).filter(Boolean);
           if (parts.length >= 2) {
@@ -1364,7 +1805,7 @@ export default function App() {
             const monthMatch = parseInt(m, 10) === selectedMonth;
             return yearMatch && monthMatch;
           }
-          
+
           return false;
         } catch (e) {
           return false;
@@ -1377,7 +1818,7 @@ export default function App() {
       if (activeTab === 'annual') {
         const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
         let savedAnnual = annualDoc.exists() ? (annualDoc.data() as AnnualPlanData) : null;
-        
+
         // 로컬 스토리지 임시저장 데이터 확인
         const localDraft = localStorage.getItem(`draft_annual_${student.name}`);
         if (localDraft) {
@@ -1405,7 +1846,7 @@ export default function App() {
         const docId = `${student.name}_${selectedYear}_${selectedMonth}`;
         const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
         let savedMonthly = monthlyDoc.exists() ? (monthlyDoc.data() as MonthlyJournalData) : null;
-        
+
         // 로컬 스토리지 임시저장 데이터 확인
         const localDraft = localStorage.getItem(`draft_monthly_${docId}`);
         if (localDraft) {
@@ -1426,13 +1867,13 @@ export default function App() {
 
         if (savedMonthly) {
           setMonthlyData(savedMonthly);
-          
+
           // Also try to load annual if not present (needed for goals context)
           if (!annualData) {
             const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
             if (annualDoc.exists()) setAnnualData(annualDoc.data() as AnnualPlanData);
           }
-          
+
           setIsLoading(false);
           return;
         }
@@ -1505,13 +1946,17 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (skipNextFetchRef.current) {
+      skipNextFetchRef.current = false;
+      return;
+    }
     if (selectedStudent) {
       fetchData(selectedStudent, journalTone);
     }
   }, [selectedMonth, selectedYear]);
 
   const [showPrintWarning, setShowPrintWarning] = useState(false);
-  
+
   const handlePrintRequest = () => {
     setExportAction('print');
     setShowExportModal(true);
@@ -1528,47 +1973,47 @@ export default function App() {
 
   const executeExport = async (options: ExportOptions) => {
     if (!selectedStudent) return;
-    
+
     setShowExportModal(false);
     setIsExporting(true);
     setExportIncludeAnnual(options.includeAnnual);
-    
+
     try {
       // 1. Ensure Annual Data exists
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent);
+        currentAnnual = await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual);
         setAnnualData(currentAnnual);
       }
 
       // 2. Fetch Multi-month Data
       const multiMonthData: { month: number; year: number; data: MonthlyJournalData }[] = [];
       const { startYear, startMonth, endYear, endMonth } = options;
-      
+
       let sy = startYear;
       let sm = startMonth;
-      
+
       while (sy < endYear || (sy === endYear && sm <= endMonth)) {
         const yearStr = sy.toString();
         const monthNum = sm;
         const monthStr = sm.toString().padStart(2, '0');
-        
+
         // Robust Date Filtering
         const filteredDates = selectedStudent.paymentDates.filter(d => {
             try {
               const dStr = normalizeDateStr(String(d));
               // 지원하는 형식: 2026.04.17, 2026-04-17, 26/04/17, 2026년 4월 17일, 4/17 등
               const match = dStr.match(/(\d{2,4})?[-./\s년]*(\d{1,2})[-./\s월]+(\d{1,2})/);
-              
+
               if (match) {
                 const y = match[1];
                 const m = parseInt(match[2], 10);
-                
+
                 // 연도가 없는 경우(4/17 등)는 선택된 연도로 간주, 있는 경우는 일치 여부 확인
                 const yearMatch = !y || (y.length === 2 ? yearStr.endsWith(y) : y === yearStr);
                 return yearMatch && m === monthNum;
               }
-              
+
               // 숫자만 있는 경우나 기타 구분자 처리
               const parts = dStr.split(/[-./\s년월일]+/).filter(Boolean);
               if (parts.length >= 2) {
@@ -1583,19 +2028,19 @@ export default function App() {
 
         const studentWithFilteredDates = { ...selectedStudent, paymentDates: filteredDates };
         const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === monthNum)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
-        
+
         // [Optimization] Check Firestore first to avoid redundant AI calls
         let mData: MonthlyJournalData | null = null;
         const docId = `${selectedStudent.name}_${yearStr}_${monthNum}`;
         const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
-        
+
         if (monthlyDoc.exists()) {
           mData = monthlyDoc.data() as MonthlyJournalData;
           console.log(`[Cache] Using saved journal for ${yearStr}-${monthNum}`);
         } else if (filteredDates.length > 0) {
           // No saved data, generate check
           console.log(`[AI] Generating new journal for ${yearStr}-${monthNum}`);
-          mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal);
+          mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal, journalTone, selectedStudent.referenceData, promptTemplates.monthly);
         } else {
           mData = {
             currentLevel: "해당 월의 치료 내역이 없습니다.",
@@ -1604,7 +2049,7 @@ export default function App() {
             result: "내역 없음"
           };
         }
-        
+
         if (mData && mData.sessions) {
             const sessionDates = new Set(mData.sessions.map(s => s.date));
             const missingDates = filteredDates.filter(d => !sessionDates.has(d));
@@ -1613,9 +2058,9 @@ export default function App() {
               mData.sessions = [...mData.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
             }
         }
-        
+
         multiMonthData.push({ month: monthNum, year: sy, data: mData });
-        
+
         sm++;
         if (sm > 12) {
           sm = 1;
@@ -1624,7 +2069,7 @@ export default function App() {
       }
 
       setExportMonthlyDataList(multiMonthData);
-      
+
       // Validate if we actually collected any sessions
       const hasValidSessions = multiMonthData.some(item => item.data && item.data.sessions.length > 0);
       if (!hasValidSessions) {
@@ -1633,7 +2078,7 @@ export default function App() {
         setExportAction(null);
         return;
       }
-      
+
       // 3. Document Output Logic
       if (exportAction === 'download') {
         await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth);
@@ -1654,7 +2099,7 @@ export default function App() {
       const timer = setTimeout(() => {
         // [Direct Print Strategy] 메인 창에서 직접 인쇄하여 테두리/폰트 유실 방지
         window.print();
-        
+
         // 인쇄 호출 후 상태 정리 (약간의 지연 필요)
         setTimeout(() => {
           setExportMonthlyDataList([]);
@@ -1674,6 +2119,13 @@ export default function App() {
     if (status === 'mismatch') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-amber-50 text-amber-700 border-amber-200';
   };
+
+  const qualityIssues = selectedStudent ? getQualityIssues() : [];
+  const displayStudent = selectedStudent ? buildDisplayStudent(selectedStudent) : null;
+  const selectedDocStatus = selectedStudent ? documentStatuses[selectedStudent.name] : null;
+  const selectedMonthlySaved = Boolean(selectedDocStatus?.monthly?.[`${selectedYear}_${selectedMonth}`]);
+  const selectedAnnualSaved = Boolean(selectedDocStatus?.annual);
+  const getStudentDisplayName = (name: string) => privacyMode ? maskValue(name) : name;
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
@@ -1714,8 +2166,37 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => {
+              refreshDraftItems();
+              setShowDraftModal(true);
+            }}
+            className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary-light"
+          >
+            <ArchiveRestore className="w-4 h-4" />
+            임시저장함
+            {draftItems.length > 0 && (
+              <span className="bg-amber-100 text-amber-700 text-[10px] font-black px-1.5 py-0.5 rounded-full">{draftItems.length}</span>
+            )}
+          </button>
+          <button
+            onClick={() => setShowPromptModal(true)}
+            className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary-light"
+          >
+            <Settings className="w-4 h-4" />
+            프롬프트
+          </button>
+          <button
+            onClick={() => setPrivacyMode(prev => !prev)}
+            className={`text-sm font-semibold transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${
+              privacyMode ? 'bg-slate-900 text-white' : 'text-text-muted hover:text-primary hover:bg-primary-light'
+            }`}
+          >
+            {privacyMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            개인정보
+          </button>
           {isDataLoaded && (
-            <button 
+            <button
               onClick={() => {
                 setIsDataLoaded(false);
                 setRawRecords([]);
@@ -1736,7 +2217,7 @@ export default function App() {
         {/* Global Notification Area */}
         <AnimatePresence>
           {showPrintWarning && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
@@ -1747,11 +2228,11 @@ export default function App() {
                 <span>인쇄 안내</span>
               </div>
               <p className="text-text-muted leading-relaxed">
-                현재 미리보기 화면(iframe)에서는 브라우저 보안 정책으로 인해 인쇄 창이 뜨지 않을 수 있습니다. 
+                현재 미리보기 화면(iframe)에서는 브라우저 보안 정책으로 인해 인쇄 창이 뜨지 않을 수 있습니다.
                 <br /><br />
                 상단 메뉴의 <strong>'새 탭에서 열기'</strong> 버튼을 눌러 새 창에서 인쇄를 진행해 주세요.
               </p>
-              <button 
+              <button
                 onClick={() => setShowPrintWarning(false)}
                 className="mt-2 bg-primary text-white py-2 rounded-xl font-bold hover:bg-primary-dark transition-all"
               >
@@ -1760,13 +2241,13 @@ export default function App() {
             </motion.div>
           )}
           {uploadStatus && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
               className={`fixed top-20 left-1/2 z-50 flex items-center gap-3 px-6 py-3 rounded-2xl shadow-xl border text-sm font-semibold backdrop-blur-md ${
-                uploadStatus.type === 'success' 
-                  ? 'bg-green-50/90 text-green-700 border-green-100' 
+                uploadStatus.type === 'success'
+                  ? 'bg-green-50/90 text-green-700 border-green-100'
                   : 'bg-red-50/90 text-red-700 border-red-100'
               }`}
             >
@@ -1777,7 +2258,7 @@ export default function App() {
         </AnimatePresence>
 
         {currentView === 'students' ? (
-          <StudentManagement 
+          <StudentManagement
             studentInfos={studentInfos}
             onAdd={handleAddStudentInfo}
             onUpdate={handleUpdateStudentInfo}
@@ -1788,14 +2269,14 @@ export default function App() {
             onDeleteAttachment={handleDeleteAttachment}
           />
         ) : currentView === 'schedule' ? (
-          <ScheduleManager 
-            studentInfos={studentInfos} 
-            paymentRecords={allPaymentRecords} 
+          <ScheduleManager
+            studentInfos={studentInfos}
+            paymentRecords={allPaymentRecords}
           />
         ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">
             {/* Hero Section */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-center mb-12 max-w-3xl"
@@ -1811,15 +2292,15 @@ export default function App() {
             </motion.div>
 
             {/* Main Work Card */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.1 }}
               className="w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl shadow-primary/5 border border-border-theme p-8 md:p-12 mb-16 relative overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary to-primary-dark"></div>
-              
-              <div 
+
+              <div
                 className="flex flex-col items-center text-center cursor-pointer group"
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1849,12 +2330,12 @@ export default function App() {
                   파일 선택하기
                   <ArrowRight className="w-5 h-5" />
                 </button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileUpload} 
-                  accept=".csv, .xlsx, .xls" 
-                  className="hidden" 
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept=".csv, .xlsx, .xls"
+                  className="hidden"
                 />
               </div>
             </motion.div>
@@ -1862,20 +2343,20 @@ export default function App() {
             {/* Feature Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
               {[
-                { 
-                  icon: Zap, 
-                  title: "간편한 엑셀 연동", 
-                  desc: "드래그 앤 드롭으로 결제 내역을 즉시 로드합니다." 
+                {
+                  icon: Zap,
+                  title: "간편한 엑셀 연동",
+                  desc: "드래그 앤 드롭으로 결제 내역을 즉시 로드합니다."
                 },
-                { 
-                  icon: Sparkles, 
-                  title: "AI 맞춤형 작성", 
-                  desc: "학생별 치료 영역에 맞춘 목표를 자동 생성합니다." 
+                {
+                  icon: Sparkles,
+                  title: "AI 맞춤형 작성",
+                  desc: "학생별 치료 영역에 맞춘 목표를 자동 생성합니다."
                 },
-                { 
-                  icon: ShieldCheck, 
-                  title: "완벽한 출력 지원", 
-                  desc: "A4 용지 규격에 최적화된 인쇄 및 PDF 저장을 지원합니다." 
+                {
+                  icon: ShieldCheck,
+                  title: "완벽한 출력 지원",
+                  desc: "A4 용지 규격에 최적화된 인쇄 및 PDF 저장을 지원합니다."
                 }
               ].map((feature, i) => (
                 <motion.div
@@ -1914,56 +2395,70 @@ export default function App() {
                   <span className="bg-primary-light text-primary px-2 py-0.5 rounded-full">{filteredStudents.length}명</span>
                 </div>
               </div>
-              
+
               <div className="flex-1 overflow-auto p-2 space-y-1">
                 <AnimatePresence initial={false}>
                   {filteredStudents.length > 0 ? (
-                    filteredStudents.map((name) => (
-                      <motion.div
-                        key={name}
-                        layout
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => handleStudentSelect(name)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            handleStudentSelect(name);
-                          }
-                        }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left group cursor-pointer ${
-                          selectedStudent?.name === name
-                            ? 'bg-primary-light text-primary shadow-sm border border-primary/10'
-                            : 'hover:bg-bg-theme text-text-main border border-transparent'
-                        }`}
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-colors ${
-                          selectedStudent?.name === name ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-white'
-                        }`}>
-                          {name.charAt(0)}
-                        </div>
-                        <span className="font-semibold text-sm">{name}</span>
-                        
-                        <div className="ml-auto flex items-center gap-2">
-                          {!studentInfos.some(s => s.name === name) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAutoRegister(name);
-                              }}
-                              className="px-2 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-md hover:bg-primary hover:text-white transition-all"
-                            >
-                              정보 등록
-                            </button>
-                          )}
-                          {selectedStudent?.name === name && (
-                            <motion.div layoutId="active-indicator" className="w-1.5 h-1.5 rounded-full bg-primary" />
-                          )}
-                        </div>
-                      </motion.div>
-                    ))
+                    filteredStudents.map((name) => {
+                      const status = documentStatuses[name];
+                      const hasAnnual = Boolean(status?.annual);
+                      const hasMonthly = Boolean(status?.monthly?.[`${selectedYear}_${selectedMonth}`]);
+                      const hasDraft = draftItems.some(item => item.studentName === name);
+
+                      return (
+                        <motion.div
+                          key={name}
+                          layout
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          onClick={() => handleStudentSelect(name)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              handleStudentSelect(name);
+                            }
+                          }}
+                          className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-all text-left group cursor-pointer ${
+                            selectedStudent?.name === name
+                              ? 'bg-primary-light text-primary shadow-sm border border-primary/10'
+                              : 'hover:bg-bg-theme text-text-main border border-transparent'
+                          }`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-colors ${
+                            selectedStudent?.name === name ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-white'
+                          }`}>
+                            {name.charAt(0)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-sm block truncate">{getStudentDisplayName(name)}</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border ${hasAnnual ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>연간</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border ${hasMonthly ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>{selectedMonth}월</span>
+                              {hasDraft && <span className="px-1.5 py-0.5 rounded text-[9px] font-black border bg-amber-50 text-amber-700 border-amber-100">임시</span>}
+                            </div>
+                          </div>
+
+                          <div className="ml-auto flex items-center gap-2">
+                            {!studentInfos.some(s => s.name === name) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAutoRegister(name);
+                                }}
+                                className="px-2 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-md hover:bg-primary hover:text-white transition-all"
+                              >
+                                정보 등록
+                              </button>
+                            )}
+                            {selectedStudent?.name === name && (
+                              <motion.div layoutId="active-indicator" className="w-1.5 h-1.5 rounded-full bg-primary mt-3" />
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })
                   ) : (
                     <div className="py-12 text-center text-text-muted">
                       <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
@@ -1988,7 +2483,7 @@ export default function App() {
             <div className="flex-1 flex flex-col overflow-hidden bg-bg-theme/50 min-h-0">
               {!selectedStudent ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-text-muted p-10">
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center max-w-sm"
@@ -2007,8 +2502,19 @@ export default function App() {
                 <div className="flex-1 flex flex-col p-6 md:p-10 gap-6 overflow-auto">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
                     <div>
-                      <h2 className="text-2xl font-bold text-text-main">{selectedStudent.name} 학생</h2>
-                      <p className="text-sm text-text-muted">{selectedStudent.treatmentArea} · {selectedStudent.school}</p>
+                      <h2 className="text-2xl font-bold text-text-main">{displayStudent?.name} 학생</h2>
+                      <p className="text-sm text-text-muted">{displayStudent?.treatmentArea} · {displayStudent?.school}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black border ${selectedAnnualSaved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                          연간 {selectedAnnualSaved ? '저장됨' : '미저장'}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black border ${selectedMonthlySaved ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                          {selectedMonth}월 {selectedMonthlySaved ? '저장됨' : '미저장'}
+                        </span>
+                        {privacyMode && (
+                          <span className="px-2 py-1 rounded-full text-[10px] font-black border bg-slate-900 text-white border-slate-900">보호 모드</span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3 w-full md:w-auto">
@@ -2016,8 +2522,8 @@ export default function App() {
                         <button
                           onClick={() => setActiveTab('annual')}
                           className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                            activeTab === 'annual' 
-                              ? 'bg-white text-primary shadow-md' 
+                            activeTab === 'annual'
+                              ? 'bg-white text-primary shadow-md'
                               : 'text-text-muted hover:text-text-main'
                           }`}
                         >
@@ -2026,8 +2532,8 @@ export default function App() {
                         <button
                           onClick={() => setActiveTab('monthly')}
                           className={`px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                            activeTab === 'monthly' 
-                              ? 'bg-white text-primary shadow-md' 
+                            activeTab === 'monthly'
+                              ? 'bg-white text-primary shadow-md'
                               : 'text-text-muted hover:text-text-main'
                           }`}
                         >
@@ -2047,7 +2553,7 @@ export default function App() {
                               if (selectedStudent) {
                                 setIsLoading(true);
                                 try {
-                                  const latestAnnual = await generateAnnualPlan(selectedStudent, newTone);
+                                  const latestAnnual = await generateAnnualPlan(selectedStudent, newTone, selectedStudent.referenceData, promptTemplates.annual);
                                   setAnnualData(latestAnnual);
                                   setMonthlyData(null); // Clear monthly to force sync on next view
                                   setUploadStatus({ type: 'success', message: '연간계획서 문체가 적용되어 목표가 갱신되었습니다.' });
@@ -2076,7 +2582,7 @@ export default function App() {
 
                       <div className="flex items-center gap-2 px-4 bg-white border border-border-theme rounded-xl h-11 shadow-sm">
                         <Calendar className="w-4 h-4 text-text-muted" />
-                        <select 
+                        <select
                           value={selectedYear}
                           onChange={(e) => setSelectedYear(Number(e.target.value))}
                           className="bg-transparent text-sm font-bold outline-none cursor-pointer"
@@ -2086,7 +2592,7 @@ export default function App() {
                           ))}
                         </select>
                         <div className="w-px h-4 bg-border-theme mx-1"></div>
-                        <select 
+                        <select
                           value={selectedMonth}
                           onChange={(e) => setSelectedMonth(Number(e.target.value))}
                           className="bg-transparent text-sm font-bold outline-none cursor-pointer"
@@ -2099,7 +2605,7 @@ export default function App() {
 
                       <button
                         className={`flex items-center gap-2 px-4 py-2 rounded font-bold transition-all ${
-                          isEditing 
+                          isEditing
                             ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                             : 'bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg active:scale-95'
                         }`}
@@ -2110,8 +2616,31 @@ export default function App() {
                         <Printer size={16} />
                         미리보기 및 출력
                       </button>
-                      
-                      <button 
+
+                      <button
+                        onClick={loadDocumentHistory}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border-theme text-text-main rounded-xl font-bold text-sm hover:bg-bg-theme transition-all"
+                      >
+                        <History className="w-4 h-4" />
+                        이전 버전
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          const issues = await runPreflightChecks();
+                          setUploadStatus({
+                            type: issues.length ? 'error' : 'success',
+                            message: issues.length ? `생성 전 확인 필요 ${issues.length}건` : 'AI 생성 전 점검을 통과했습니다.'
+                          });
+                          setTimeout(() => setUploadStatus(null), 3000);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border-theme text-text-main rounded-xl font-bold text-sm hover:bg-bg-theme transition-all"
+                      >
+                        <ClipboardCheck className="w-4 h-4" />
+                        AI 점검
+                      </button>
+
+                      <button
                         onClick={handleDownloadRequest}
                         className="flex items-center gap-2 px-6 py-2.5 bg-white border border-primary text-primary rounded-xl font-bold text-sm hover:bg-primary-light transition-all"
                       >
@@ -2119,7 +2648,7 @@ export default function App() {
                         워드 다운로드
                       </button>
 
-                      <button 
+                      <button
                         onClick={isEditing ? handleSaveDocument : () => setIsEditing(true)}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
                           ((activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData))
@@ -2141,7 +2670,7 @@ export default function App() {
                         )}
                       </button>
 
-                      <button 
+                      <button
                         onClick={handleSaveDocument}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
                           (activeTab === 'annual' && annualData) || (activeTab === 'monthly' && monthlyData)
@@ -2155,7 +2684,7 @@ export default function App() {
                       </button>
 
                       {activeTab === 'annual' && (
-                        <button 
+                        <button
                           onClick={() => {
                             setActiveTab('monthly');
                             if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
@@ -2168,7 +2697,7 @@ export default function App() {
                       )}
 
                       {activeTab === 'monthly' && (
-                        <button 
+                        <button
                           onClick={() => handleGenerateDraft()}
                           className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
                         >
@@ -2176,14 +2705,90 @@ export default function App() {
                           AI로 자동 생성
                         </button>
                       )}
+
+                      <button
+                        onClick={() => setShowBatchPanel(prev => !prev)}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20"
+                      >
+                        <Layers3 className="w-4 h-4" />
+                        월별 일괄 생성
+                      </button>
                     </div>
                   </div>
+
+                  {(preflightIssues.length > 0 || qualityIssues.length > 0 || showBatchPanel) && (
+                    <div className="no-print grid grid-cols-1 xl:grid-cols-3 gap-3">
+                      {qualityIssues.length > 0 && (
+                        <div className="bg-white border border-border-theme rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-2 font-black text-sm text-text-main">
+                            <ClipboardCheck className="w-4 h-4 text-primary" />
+                            문서 품질 검사
+                          </div>
+                          <div className="space-y-1">
+                            {qualityIssues.slice(0, 5).map((issue, idx) => (
+                              <div key={idx} className={`text-xs font-semibold ${issue.level === 'error' ? 'text-red-600' : 'text-amber-700'}`}>- {issue.label}</div>
+                            ))}
+                            {qualityIssues.length > 5 && <div className="text-xs text-text-muted">외 {qualityIssues.length - 5}건</div>}
+                          </div>
+                        </div>
+                      )}
+
+                      {preflightIssues.length > 0 && (
+                        <div className="bg-white border border-border-theme rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-2 font-black text-sm text-text-main">
+                            <AlertCircle className="w-4 h-4 text-amber-500" />
+                            AI 생성 전 점검
+                          </div>
+                          <div className="space-y-1">
+                            {preflightIssues.slice(0, 5).map((issue, idx) => (
+                              <div key={idx} className="text-xs font-semibold text-amber-700">- {issue}</div>
+                            ))}
+                            {preflightIssues.length > 5 && <div className="text-xs text-text-muted">외 {preflightIssues.length - 5}건</div>}
+                          </div>
+                        </div>
+                      )}
+
+                      {showBatchPanel && (
+                        <div className="bg-white border border-border-theme rounded-xl p-4">
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2 font-black text-sm text-text-main">
+                              <Layers3 className="w-4 h-4 text-purple-600" />
+                              {selectedYear}년 월별 일괄 생성
+                            </div>
+                            <button
+                              onClick={handleBatchGenerateMonthly}
+                              disabled={isBatchGenerating}
+                              className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-black disabled:bg-slate-200 disabled:text-slate-400"
+                            >
+                              {isBatchGenerating ? '진행 중' : '시작'}
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {([3,4,5,6,7,8,9,10,11,12,1,2]).map(month => {
+                              const item = batchResults.find(result => result.month === month);
+                              return (
+                                <div key={month} className="border border-slate-100 rounded-lg px-2 py-1.5">
+                                  <div className="text-xs font-black">{month}월</div>
+                                  <div className={`text-[10px] font-bold ${
+                                    item?.status === 'saved' ? 'text-emerald-600' :
+                                    item?.status === 'fallback' ? 'text-amber-600' :
+                                    item?.status === 'error' ? 'text-red-600' :
+                                    item?.status === 'running' ? 'text-purple-600' : 'text-slate-400'
+                                  }`}>{item?.message || '대기'}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Document Preview Container */}
                   <div className={`bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme overflow-auto relative print:hidden ${isEditing ? 'p-2 md:p-4' : 'p-6 md:p-12'}`}>
                     <AnimatePresence mode="wait">
                       {isLoading || isExporting ? (
-                        <motion.div 
+                        <motion.div
                           key="loader"
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
@@ -2205,10 +2810,10 @@ export default function App() {
                           className={`document-container min-h-full ${isEditing ? 'w-full max-w-none' : ''}`}
                         >
                           {activeTab === 'annual' && annualData && annualData.currentLevel ? (
-                            <AnnualPlan 
-                              student={selectedStudent} 
-                              data={annualData} 
-                              year={selectedYear} 
+                            <AnnualPlan
+                              student={displayStudent || selectedStudent}
+                              data={annualData}
+                              year={selectedYear}
                               isEditing={isEditing}
                               onUpdate={(newData) => setAnnualData(newData)}
                             />
@@ -2264,11 +2869,11 @@ export default function App() {
                                   )}
                                 </div>
                               )}
-                              <MonthlyJournal 
-                                student={selectedStudent} 
-                                data={monthlyData} 
-                                month={selectedMonth} 
-                                year={selectedYear} 
+                              <MonthlyJournal
+                                student={displayStudent || selectedStudent}
+                                data={monthlyData}
+                                month={selectedMonth}
+                                year={selectedYear}
                                 isEditing={isEditing}
                                 onUpdate={(newData) => setMonthlyData(newData)}
                               />
@@ -2277,8 +2882,8 @@ export default function App() {
                             <div className="flex flex-col items-center justify-center h-full py-20 text-text-muted opacity-50">
                               <FileText className="w-16 h-16 mb-4" />
                               <p className="text-lg font-bold">
-                                {monthlyData && monthlyData.sessions.length === 0 
-                                  ? "해당 월의 치료 내역이 없습니다." 
+                                {monthlyData && monthlyData.sessions.length === 0
+                                  ? "해당 월의 치료 내역이 없습니다."
                                   : "서류 데이터를 생성할 수 없습니다."}
                               </p>
                               <p className="text-sm">데이터 형식이 올바른지 확인해 주세요.</p>
@@ -2304,7 +2909,7 @@ export default function App() {
         <p>© 2026 치료 서류 자동 생성 시스템. All rights reserved.</p>
       </footer>
 
-      <ExportOptionsModal 
+      <ExportOptionsModal
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         onExecute={executeExport}
@@ -2317,12 +2922,157 @@ export default function App() {
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         activeTab={activeTab}
-        student={selectedStudent}
+        student={displayStudent}
         annualData={annualData}
         monthlyData={monthlyData}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
       />
+
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-border-theme p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-black text-text-main flex items-center gap-2">
+                  <History className="w-5 h-5 text-primary" />
+                  이전 버전 복구
+                </h3>
+                <p className="text-sm text-text-muted mt-1">저장 전 자동 백업된 문서를 현재 편집본으로 불러옵니다.</p>
+              </div>
+              <button onClick={() => setShowHistoryModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-auto space-y-2">
+              {historyEntries.length > 0 ? historyEntries.map(entry => (
+                <div key={entry.id} className="border border-border-theme rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-bold text-text-main">
+                      {entry.docType === 'annual' ? '연간계획서' : `${entry.month}월 월별일지`}
+                    </div>
+                    <div className="text-xs text-text-muted mt-1">
+                      {entry.createdAtMs ? new Date(entry.createdAtMs).toLocaleString() : '저장 시각 정보 없음'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => restoreHistoryEntry(entry)}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary-dark"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    복구
+                  </button>
+                </div>
+              )) : (
+                <div className="py-12 text-center text-text-muted font-semibold">저장된 이전 버전이 없습니다.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDraftModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowDraftModal(false)} />
+          <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-border-theme p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-black text-text-main flex items-center gap-2">
+                  <ArchiveRestore className="w-5 h-5 text-primary" />
+                  자동 저장 복구함
+                </h3>
+                <p className="text-sm text-text-muted mt-1">저장하지 않고 남은 작성 중 문서를 불러오거나 삭제합니다.</p>
+              </div>
+              <button onClick={() => setShowDraftModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-auto space-y-2">
+              {draftItems.length > 0 ? draftItems.map(item => (
+                <div key={item.key} className="border border-border-theme rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-bold text-text-main">
+                      {getStudentDisplayName(item.studentName)} · {item.type === 'annual' ? '연간계획서' : `${item.year}년 ${item.month}월 월별일지`}
+                    </div>
+                    <div className="text-xs text-text-muted mt-1">{item.key}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => loadDraftItem(item)}
+                      className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary-dark"
+                    >
+                      불러오기
+                    </button>
+                    <button
+                      onClick={() => deleteDraftItem(item)}
+                      className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-red-50 hover:text-red-600"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-12 text-center text-text-muted font-semibold">복구할 임시저장 문서가 없습니다.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPromptModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowPromptModal(false)} />
+          <div className="relative bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-border-theme p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-black text-text-main flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-primary" />
+                  AI 프롬프트 템플릿
+                </h3>
+                <p className="text-sm text-text-muted mt-1">생성 프롬프트에 추가로 반영할 기관별 작성 지침입니다.</p>
+              </div>
+              <button onClick={() => setShowPromptModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-black text-text-main">연간계획서 추가 지침</span>
+                <textarea
+                  className="min-h-[220px] border border-border-theme rounded-xl p-3 text-sm outline-none focus:border-primary"
+                  value={promptTemplates.annual}
+                  onChange={(e) => setPromptTemplates(prev => ({ ...prev, annual: e.target.value }))}
+                />
+              </label>
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-black text-text-main">월별일지 추가 지침</span>
+                <textarea
+                  className="min-h-[220px] border border-border-theme rounded-xl p-3 text-sm outline-none focus:border-primary"
+                  value={promptTemplates.monthly}
+                  onChange={(e) => setPromptTemplates(prev => ({ ...prev, monthly: e.target.value }))}
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setPromptTemplates(createDefaultPromptTemplates())}
+                className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200"
+              >
+                기본값 복원
+              </button>
+              <button
+                onClick={() => {
+                  setShowPromptModal(false);
+                  setUploadStatus({ type: 'success', message: '프롬프트 템플릿이 저장되었습니다.' });
+                  setTimeout(() => setUploadStatus(null), 3000);
+                }}
+                className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary-dark"
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* [CRITICAL] Direct Print Container - Only visible during window.print() */}
       {selectedStudent && !isPreviewOpen && (
@@ -2330,12 +3080,12 @@ export default function App() {
           <div className="export-print-container">
             {exportIncludeAnnual && annualData && (
               <div className="print-page-break">
-                <AnnualPlan student={selectedStudent} data={annualData} year={exportMonthlyDataList[0]?.year || selectedYear} />
+                <AnnualPlan student={displayStudent || selectedStudent} data={annualData} year={exportMonthlyDataList[0]?.year || selectedYear} />
               </div>
             )}
             {exportMonthlyDataList.map((item, idx) => (
               <div key={`print-${idx}`} className="print-page-break">
-                <MonthlyJournal student={selectedStudent} data={item.data} month={item.month} year={item.year} />
+                <MonthlyJournal student={displayStudent || selectedStudent} data={item.data} month={item.month} year={item.year} />
               </div>
             ))}
           </div>

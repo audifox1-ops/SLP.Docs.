@@ -33,6 +33,37 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/ai/status", async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        configured: false,
+        ok: false,
+        error: {
+          code: 'MISSING_GEMINI_API_KEY',
+          userMessage: '.env 파일에 GEMINI_API_KEY를 설정한 뒤 서버를 재시작해 주세요.'
+        }
+      });
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-lite',
+        contents: [{ role: 'user', parts: [{ text: 'Return JSON only: {"ok": true}' }] }],
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+
+      res.json({ configured: true, ok: Boolean(response.text), text: response.text || '' });
+    } catch (error) {
+      const details = normalizeGeminiError(error);
+      console.error('Gemini status check failed:', details);
+      res.json({ configured: true, ok: false, error: details });
+    }
+  });
+
   app.post("/api/ai/generate", async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     const prompt = req.body?.prompt;
