@@ -158,6 +158,18 @@ export default function App() {
     }
   }, [studentInfos, allPaymentRecords]);
 
+  // 로컬 스토리지 임시 자동 저장 (isEditing 상태일 때 변경사항 저장)
+  useEffect(() => {
+    if (selectedStudent && isEditing) {
+      if (activeTab === 'annual' && annualData) {
+        localStorage.setItem(`draft_annual_${selectedStudent.name}`, JSON.stringify(annualData));
+      } else if (activeTab === 'monthly' && monthlyData) {
+        const docId = `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
+        localStorage.setItem(`draft_monthly_${docId}`, JSON.stringify(monthlyData));
+      }
+    }
+  }, [annualData, monthlyData, activeTab, selectedStudent, isEditing, selectedYear, selectedMonth]);
+
   const handleAddStudentInfo = async (info: StudentInfo) => {
     if (studentInfos.some(s => s.name === info.name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
@@ -467,41 +479,51 @@ export default function App() {
         if (cancelVal === 'Y' || cancelVal === 'y') continue;
         if (!name || !date) continue;
 
-        // Duplicate Check: name + date + amount + area
+        // Duplicate Check: name + date + time
+        const timeStr = time ? time.substring(0, 5) : '';
         const isDuplicate = allPaymentRecords.some(r => 
           r.studentName === name && 
           r.transactionDate === date && 
-          String(r.amount) === String(amount) && 
-          r.treatmentArea === area
+          (r.transactionTime || '') === timeStr
         );
 
         if (isDuplicate) {
-          duplicateCount++;
-          continue;
+          duplicateCount++; // 중복(덮어쓰기) 건수로 카운트
+        } else {
+          addedCount++;
         }
 
-        const newRecordRef = doc(collection(db, 'payment_records'));
+        // 고유 ID 생성 (이름_날짜_시간) - Firestore ID 규칙에 맞게 특수문자 제거
+        const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
+        const safeDate = date.replace(/[^0-9]/g, '');
+        const safeTime = timeStr ? timeStr.replace(/[^0-9]/g, '') : 'notime';
+        const docId = `pay_${safeName}_${safeDate}_${safeTime}`;
+
+        const newRecordRef = doc(db, 'payment_records', docId); // 직접 지정된 doc ID 사용
         const recordData: any = {
           studentName: name,
           transactionDate: date,
           amount: amount,
           treatmentArea: area,
-          createdAt: serverTimestamp()
+          updatedAt: serverTimestamp()
         };
+        if (!isDuplicate) {
+          recordData.createdAt = serverTimestamp();
+        }
         // 거래시간이 있으면 HH:MM 앞 5자리만 저장
-        if (time) recordData.transactionTime = time.substring(0, 5);
-        batch.set(newRecordRef, recordData);
-        addedCount++;
+        if (timeStr) recordData.transactionTime = timeStr;
+        
+        batch.set(newRecordRef, recordData, { merge: true }); // 기존 데이터 덮어쓰기(병합)
       }
 
-      if (addedCount > 0) {
+      if (addedCount > 0 || duplicateCount > 0) {
         await batch.commit();
       }
 
       const cancelMsg = canceledCount > 0 ? ` (취소건 ${canceledCount}건 제외)` : '';
       setUploadStatus({ 
         type: 'success', 
-        message: `총 ${addedCount}건이 업로드되었으며, ${duplicateCount}건의 중복 데이터는 제외되었습니다.${cancelMsg}` 
+        message: `총 ${addedCount}건 신규 업로드, ${duplicateCount}건 덮어쓰기(업데이트) 완료.${cancelMsg}` 
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'payment_records');
@@ -718,11 +740,13 @@ export default function App() {
       if (activeTab === 'annual' && annualData) {
         // Save Annual Plan
         await setDoc(doc(db, 'annual_plans', selectedStudent.name), annualData);
+        localStorage.removeItem(`draft_annual_${selectedStudent.name}`); // 저장 후 임시저장 삭제
         setUploadStatus({ type: 'success', message: '연간계획서가 성공적으로 저장되었습니다.' });
       } else if (activeTab === 'monthly' && monthlyData) {
         // Save Monthly Journal
         const docId = `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
         await setDoc(doc(db, 'monthly_journals', docId), monthlyData);
+        localStorage.removeItem(`draft_monthly_${docId}`); // 저장 후 임시저장 삭제
         setUploadStatus({ type: 'success', message: `${selectedMonth}월 치료일지가 성공적으로 저장되었습니다.` });
       }
       setIsEditing(false); // Exit editing mode after saving
@@ -1123,8 +1147,27 @@ export default function App() {
       // 0. Check for existing documents in Firestore first
       if (activeTab === 'annual') {
         const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
-        if (annualDoc.exists()) {
-          const savedAnnual = annualDoc.data() as AnnualPlanData;
+        let savedAnnual = annualDoc.exists() ? (annualDoc.data() as AnnualPlanData) : null;
+        
+        // 로컬 스토리지 임시저장 데이터 확인
+        const localDraft = localStorage.getItem(`draft_annual_${student.name}`);
+        if (localDraft) {
+          try {
+            const parsedDraft = JSON.parse(localDraft);
+            if (window.confirm('작성 중이던 연간계획서가 있습니다. 이어서 작성하시겠습니까?\n(취소 시 저장된 버전 또는 새 양식을 불러옵니다)')) {
+              setAnnualData(parsedDraft);
+              setIsEditing(true); // 바로 편집 모드로 전환
+              setIsLoading(false);
+              return;
+            } else {
+              localStorage.removeItem(`draft_annual_${student.name}`);
+            }
+          } catch (e) {
+            console.error("Local draft parse error", e);
+          }
+        }
+
+        if (savedAnnual) {
           setAnnualData(savedAnnual);
           setIsLoading(false);
           return;
@@ -1132,8 +1175,27 @@ export default function App() {
       } else {
         const docId = `${student.name}_${selectedYear}_${selectedMonth}`;
         const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
-        if (monthlyDoc.exists()) {
-          const savedMonthly = monthlyDoc.data() as MonthlyJournalData;
+        let savedMonthly = monthlyDoc.exists() ? (monthlyDoc.data() as MonthlyJournalData) : null;
+        
+        // 로컬 스토리지 임시저장 데이터 확인
+        const localDraft = localStorage.getItem(`draft_monthly_${docId}`);
+        if (localDraft) {
+          try {
+            const parsedDraft = JSON.parse(localDraft);
+            if (window.confirm('작성 중이던 월간일지가 있습니다. 이어서 작성하시겠습니까?\n(취소 시 저장된 버전 또는 새 양식을 불러옵니다)')) {
+              setMonthlyData(parsedDraft);
+              setIsEditing(true); // 바로 편집 모드로 전환
+              setIsLoading(false);
+              return;
+            } else {
+              localStorage.removeItem(`draft_monthly_${docId}`);
+            }
+          } catch (e) {
+            console.error("Local draft parse error", e);
+          }
+        }
+
+        if (savedMonthly) {
           
           // 기존 데이터의 날짜 필드에 시간이 누락된 경우(줄바꿈이 없는 경우) 현재 스케줄 시간을 병합
           const currentStudentInfo = studentInfos.find(info => info.name === student.name);
