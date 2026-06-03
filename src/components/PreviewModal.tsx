@@ -33,9 +33,16 @@ export const PreviewModal: React.FC<Props> = ({
   };
 
   const handleDocxDownload = () => {
+    downloadAsWordLike('doc');
+  };
+
+  const handleHwpDownload = () => {
+    downloadAsWordLike('hwp');
+  };
+
+  const downloadAsWordLike = (ext: 'doc' | 'hwp') => {
     if (!contentRef.current) return;
     
-    // HTML을 MS Word 포맷으로 감싸서 추출
     const contentHtml = contentRef.current.innerHTML;
     const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head>
@@ -49,18 +56,25 @@ export const PreviewModal: React.FC<Props> = ({
     const footer = "</body></html>";
     const sourceHTML = header + contentHtml + footer;
     
-    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+    // HWP를 위한 Mime type 분기
+    const mimeType = ext === 'hwp' ? 'application/x-hwp' : 'application/vnd.ms-word';
+    
+    // Blob 생성 방식으로 변경하여 대용량 처리 안정성 강화
+    const blob = new Blob(['\ufeff', sourceHTML], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    
     const fileDownload = document.createElement("a");
     document.body.appendChild(fileDownload);
-    fileDownload.href = source;
+    fileDownload.href = url;
     
     const docName = activeTab === 'annual' 
-      ? `${student.name}_연간계획서.doc`
-      : `${student.name}_${selectedMonth}월_치료일지.doc`;
+      ? `${student.name}_연간계획서.${ext}`
+      : `${student.name}_${selectedMonth}월_치료일지.${ext}`;
       
     fileDownload.download = docName;
     fileDownload.click();
     document.body.removeChild(fileDownload);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -75,10 +89,16 @@ export const PreviewModal: React.FC<Props> = ({
           </h2>
           <div className="flex gap-2">
             <button
+              onClick={handleHwpDownload}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+            >
+              ⬇️ HWP(한글) 다운로드
+            </button>
+            <button
               onClick={handleDocxDownload}
               className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded hover:bg-green-700 transition-colors flex items-center gap-1"
             >
-              ⬇️ DOC(워드/한글) 다운로드
+              ⬇️ DOC(워드) 다운로드
             </button>
             <button
               onClick={handlePrint}
