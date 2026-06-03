@@ -385,14 +385,6 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               </td>
             </tr>
           )}
-          {data.sessions.length > 0 && data.sessions.length < 4 && Array.from({ length: 4 - data.sessions.length }).map((_, i) => (
-            <tr key={`empty-${i}`} className="h-12">
-              <td className="border border-black p-1"></td>
-              <td className="border border-black p-1"></td>
-              <td className="border border-black p-1"></td>
-              <td className="border border-black p-1"></td>
-            </tr>
-          ))}
         </tbody>
       </table>
 

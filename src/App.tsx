@@ -901,6 +901,12 @@ export default function App() {
       let paymentDates: string[];
       if (monthlyPayRecords.length > 0) {
         paymentDates = monthlyPayRecords.map(r => r.transactionDate);
+        // AI가 4주차 내용을 작성하도록 날짜를 강제로 최소 4개로 맞춤 (Prompt용)
+        let fallbackDay = 28;
+        while (paymentDates.length < 4) {
+          paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(fallbackDay).padStart(2, '0')}`);
+          fallbackDay--;
+        }
       } else {
         // 결제 기록 없을 때만 폴백 (임시)
         paymentDates = [];
@@ -928,12 +934,27 @@ export default function App() {
       
       if (monthlyPayRecords.length > 0) {
         // 실제 결제 기록이 있으면 날짜를 100% 결제 기록 기준으로 설정
-        monthly.sessions = monthlyPayRecords.map((r, i) => ({
-          date: formatSessionDate(r.transactionDate, r.transactionTime || '', selectedStudent.name),
-          content: monthly.sessions[i]?.content || '',
-          reaction: monthly.sessions[i]?.reaction || '',
-          consultation: monthly.sessions[i]?.consultation || ''
-        }));
+        // 단, 결제 기록이 3회여도 4주차 내용이 있다면 날짜를 빈칸으로 두고 내용은 유지
+        const mergedSessions = [];
+        const maxSessions = Math.max(monthlyPayRecords.length, 4);
+        
+        for (let i = 0; i < maxSessions; i++) {
+          const r = monthlyPayRecords[i];
+          const aiSession = monthly.sessions[i] || { content: '', reaction: '', consultation: '' };
+          
+          let dateStr = '';
+          if (r) {
+            dateStr = formatSessionDate(r.transactionDate, r.transactionTime || '', selectedStudent.name);
+          }
+          
+          mergedSessions.push({
+            date: dateStr, // 결제 기록 없으면 빈칸 (사용자가 직접 클릭해서 날짜 입력 가능)
+            content: aiSession.content,
+            reaction: aiSession.reaction,
+            consultation: aiSession.consultation || "가정 내에서의 연계 활동 및 지도 방법 안내함."
+          });
+        }
+        monthly.sessions = mergedSessions;
       } else {
         // 결제 기록 없으면 AI 날짜에 수업시간만 추가
         monthly.sessions = monthly.sessions.map(session => {
@@ -1238,6 +1259,11 @@ export default function App() {
               }
               return session;
             });
+          }
+          
+          // 세션이 4개 미만이면 빈 세션을 추가하여 사용자가 빈 칸의 날짜를 추가할 수 있게 함
+          while (savedMonthly.sessions.length < 4) {
+            savedMonthly.sessions.push({ date: '', content: '', reaction: '', consultation: '' });
           }
 
           setMonthlyData(savedMonthly);
