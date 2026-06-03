@@ -336,16 +336,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                       </button>
                     </div>
                   ) : (
-                    /* 뷰 모드: 클릭 시 팝업 */
-                    <div
-                      className="cursor-pointer hover:bg-indigo-50 rounded transition-colors group relative print:cursor-default print:hover:bg-transparent"
-                      title="클릭하여 날짜/시간 수정"
-                      onClick={() => setEditingDateIdx(idx)}
-                    >
+                    /* 뷰 모드: 단순 텍스트 표시 */
+                    <div className="relative">
                       <span className="whitespace-pre-line">{session.date}</span>
-                      <span className="block text-[0.58rem] text-indigo-300 group-hover:text-indigo-500 transition-colors print:hidden">
-                        ✏️
-                      </span>
                     </div>
                   )}
                 </td>
