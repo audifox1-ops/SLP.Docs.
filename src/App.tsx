@@ -42,6 +42,10 @@ interface RawRecord {
   [key: string]: any;
 }
 
+const getErrorMessage = (error: unknown, fallback: string) => (
+  error instanceof Error && error.message ? error.message : fallback
+);
+
 export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -768,6 +772,63 @@ export default function App() {
     });
   };
 
+  const buildFallbackAnnualPlan = (student: Student): AnnualPlanData => {
+    const months = Array.from({ length: 12 }).map((_, i) => (i < 10 ? i + 3 : i - 9));
+
+    return {
+      currentLevel: [
+        `${student.disabilityType} 특성을 고려한 기초 기능 및 참여 수준 점검이 필요함.`,
+        `${student.treatmentArea} 영역에서 단계적 촉구와 반복 중재를 통해 기능 향상을 도모함.`
+      ],
+      longTermGoals: [
+        `${student.treatmentArea} 활동 참여와 과제 수행 지속 시간을 향상함.`,
+        `치료 상황에서 습득한 기능을 일상 및 학교 장면으로 일반화함.`
+      ],
+      monthlyGoals: months.map(month => {
+        const area = student.monthlyAreas?.[month] || student.treatmentArea;
+        return {
+          month,
+          area,
+          goal: `${area} 기초 기능 향상 및 안정적 참여 태도 형성함.`,
+          content: `${area} 관련 과제를 단계화하여 모델링, 촉구, 반복 연습을 실시함.`
+        };
+      })
+    };
+  };
+
+  const buildFallbackMonthlyJournal = (
+    student: Student,
+    month: number,
+    paymentRecords: PaymentRecord[],
+    promptDates: string[],
+    monthlyGoal: string
+  ): MonthlyJournalData => {
+    const area = student.monthlyAreas?.[month] || student.treatmentArea;
+    const sessionCount = paymentRecords.length > 0 ? Math.max(paymentRecords.length, 4) : Math.max(promptDates.length, 4);
+    const mockSessions = generateMockSessions(Array.from({ length: sessionCount }, () => ''), area, monthlyGoal);
+
+    return {
+      currentLevel: `${student.disabilityType} 특성으로 과제 참여와 반응 양상에 변동이 있어 구조화된 치료 환경에서 중재를 진행함.`,
+      monthlyGoal,
+      therapyPeriod: `${selectedYear}.3.~`,
+      sessions: mockSessions.map((session, idx) => {
+        const record = paymentRecords[idx];
+        const fallbackDate = promptDates[idx];
+        const date = record
+          ? formatSessionDate(record.transactionDate, record.transactionTime || '', student.name)
+          : fallbackDate
+            ? formatSessionDate(fallbackDate, '', student.name)
+            : '';
+
+        return {
+          ...session,
+          date
+        };
+      }),
+      result: `${month}월에는 ${area} 목표에 따라 구조화된 과제를 수행하며 참여도와 반응 양상을 관찰함.`
+    };
+  };
+
   const getDateKey = (dateStr: string, fallbackYear: number = selectedYear) => {
     const normalized = normalizeDateStr(String(dateStr || ''));
     const match = normalized.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
@@ -1026,43 +1087,39 @@ export default function App() {
     if (!selectedStudent) return;
     
     setIsLoading(true);
-    try {
-      // ── 핵심 수정: 가상 날짜 대신 반드시 실제 payment_records 날짜를 사용 ──
-      const yearStr = selectedYear.toString();
-      const monthlyPayRecords = allPaymentRecords
-        .filter(r => {
-          if (r.studentName !== selectedStudent.name) return false;
-          const dStr = normalizeDateStr(String(r.transactionDate));
-          const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
-          if (m) {
-            const y = m[1];
-            const mo = m[2];
-            const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
-            return yearMatch && parseInt(mo, 10) === selectedMonth;
-          }
-          return false;
-        })
-        .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+    const yearStr = selectedYear.toString();
+    const monthlyPayRecords = allPaymentRecords
+      .filter(r => {
+        if (r.studentName !== selectedStudent.name) return false;
+        const dStr = normalizeDateStr(String(r.transactionDate));
+        const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
+        if (m) {
+          const y = m[1];
+          const mo = m[2];
+          const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
+          return yearMatch && parseInt(mo, 10) === selectedMonth;
+        }
+        return false;
+      })
+      .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
 
-      // 결제 기록이 있으면 실제 날짜, 없을 때만 가상 날짜 사용
-      let paymentDates: string[];
-      if (monthlyPayRecords.length > 0) {
-        paymentDates = monthlyPayRecords.map(r => r.transactionDate);
-        // AI가 4주차 내용을 작성하도록 날짜를 강제로 최소 4개로 맞춤 (Prompt용)
-        let fallbackDay = 28;
-        while (paymentDates.length < 4) {
-          paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(fallbackDay).padStart(2, '0')}`);
-          fallbackDay--;
-        }
-      } else {
-        // 결제 기록 없을 때만 폴백 (임시)
-        paymentDates = [];
-        for (let i = 1; i <= 4; i++) {
-          const day = 7 * i - 3;
-          paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
-        }
+    let paymentDates: string[];
+    if (monthlyPayRecords.length > 0) {
+      paymentDates = monthlyPayRecords.map(r => r.transactionDate);
+      let fallbackDay = 28;
+      while (paymentDates.length < 4) {
+        paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(fallbackDay).padStart(2, '0')}`);
+        fallbackDay--;
       }
+    } else {
+      paymentDates = [];
+      for (let i = 1; i <= 4; i++) {
+        const day = 7 * i - 3;
+        paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+      }
+    }
 
+    try {
       const studentWithDates = { ...selectedStudent, paymentDates };
       
       // 1. 연간계획서 목표 조회
@@ -1132,15 +1189,19 @@ export default function App() {
       setUploadStatus({ type: monthlyPayRecords.length > 0 ? 'success' : 'error', message: msg });
     } catch (error: any) {
       console.error("Draft generation failed:", error);
-      
-      if (error.message?.includes('429') || JSON.stringify(error).includes('429')) {
-        setUploadStatus({ 
-          type: 'error', 
-          message: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도해 주세요.' 
-        });
-      } else {
-        setUploadStatus({ type: 'error', message: '가상 일지 생성 중 오류가 발생했습니다.' });
+      const fallbackAnnual = annualData || buildFallbackAnnualPlan(selectedStudent);
+      const fallbackGoal = fallbackAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
+      const fallbackMonthly = buildFallbackMonthlyJournal(selectedStudent, selectedMonth, monthlyPayRecords, paymentDates, fallbackGoal);
+
+      if (!annualData) {
+        setAnnualData(fallbackAnnual);
       }
+      setMonthlyData(fallbackMonthly);
+      setIsEditing(true);
+      setUploadStatus({
+        type: 'error',
+        message: `${getErrorMessage(error, '가상 일지 생성 중 오류가 발생했습니다.')} Gemini 응답 대신 임시 일지 초안을 생성했습니다.`
+      });
     } finally {
       setIsLoading(false);
       setTimeout(() => setUploadStatus(null), 5000);
@@ -1437,7 +1498,7 @@ export default function App() {
 
     } catch (error) {
       console.error("Data fetch error:", error);
-      alert('서류 데이터를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      alert(getErrorMessage(error, '서류 데이터를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'));
     } finally {
       setIsLoading(false);
     }
@@ -1581,7 +1642,7 @@ export default function App() {
       // For print, we wait for useEffect to trigger after render
     } catch (err) {
       console.error(err);
-      alert('서류 생성 중 오류가 발생했습니다.');
+      alert(getErrorMessage(err, '서류 생성 중 오류가 발생했습니다.'));
       setExportAction(null);
     } finally {
       setIsExporting(false);
@@ -1992,7 +2053,10 @@ export default function App() {
                                   setUploadStatus({ type: 'success', message: '연간계획서 문체가 적용되어 목표가 갱신되었습니다.' });
                                 } catch (error) {
                                   console.error(error);
-                                  setUploadStatus({ type: 'error', message: '연간계획서 갱신 중 오류가 발생했습니다.' });
+                                  setUploadStatus({
+                                    type: 'error',
+                                    message: getErrorMessage(error, '연간계획서 갱신 중 오류가 발생했습니다.')
+                                  });
                                 } finally {
                                   setIsLoading(false);
                                   setTimeout(() => setUploadStatus(null), 3000);

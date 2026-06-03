@@ -1,7 +1,4 @@
 import { Student, AnnualPlanData, MonthlyJournalData, JournalTone } from "../types";
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 function safeJsonParse(text: string) {
   try {
@@ -31,6 +28,51 @@ function safeJsonParse(text: string) {
     
     throw e;
   }
+}
+
+type AiErrorResponse = {
+  error?: {
+    code?: string;
+    message?: string;
+    userMessage?: string;
+  };
+};
+
+async function generateJsonFromServer<T>(prompt: string): Promise<T> {
+  const response = await fetch('/api/ai/generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt })
+  });
+
+  const payload = await response.json().catch(() => null) as ({ text?: string } & AiErrorResponse) | null;
+
+  if (payload?.error) {
+    const message =
+      payload.error.userMessage ||
+      payload.error.message ||
+      `AI 생성 요청이 실패했습니다. (${payload.error.code || response.status})`;
+    const error = new Error(message) as Error & { status?: number; code?: string };
+    error.status = response.status;
+    error.code = payload.error.code;
+    throw error;
+  }
+
+  if (!response.ok) {
+    const message =
+      `AI 생성 요청이 실패했습니다. (${response.status})`;
+    const error = new Error(message) as Error & { status?: number; code?: string };
+    error.status = response.status;
+    throw error;
+  }
+
+  if (!payload?.text) {
+    throw new Error('AI 응답이 비어 있습니다.');
+  }
+
+  return safeJsonParse(payload.text) as T;
 }
 
 export async function generateAnnualPlan(student: Student, tone: JournalTone = 'expert', referenceData?: string): Promise<AnnualPlanData> {
@@ -100,16 +142,7 @@ ${referenceData.substring(0, 10000)}
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    if (!response.text) throw new Error('Empty response from AI');
-    return safeJsonParse(response.text);
+    return generateJsonFromServer<AnnualPlanData>(prompt);
   } catch (error) {
     console.error("AI Error:", error);
     throw error;
@@ -200,16 +233,7 @@ ${referenceData.substring(0, 10000)}
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    if (!response.text) throw new Error('Empty response from AI');
-    return safeJsonParse(response.text);
+    return generateJsonFromServer<MonthlyJournalData>(prompt);
   } catch (error) {
     console.error("AI Error:", error);
     throw error;
