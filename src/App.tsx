@@ -9,6 +9,7 @@ import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
 import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
 import { PreviewModal } from './components/PreviewModal';
+import { ScheduleManager } from './components/ScheduleManager';
 import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
@@ -50,7 +51,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
+  const [currentView, setCurrentView] = useState<'docs' | 'students' | 'schedule'>('docs');
   const [journalTone, setJournalTone] = useState<JournalTone>('expert');
   const [isEditing, setIsEditing] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -1543,6 +1544,14 @@ export default function App() {
           >
             학생 정보 관리
           </button>
+          <button
+            onClick={() => setCurrentView('schedule')}
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+              currentView === 'schedule' ? 'bg-white text-primary shadow-sm' : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            시간표 관리
+          </button>
         </nav>
 
         <div className="flex items-center gap-4">
@@ -1618,6 +1627,11 @@ export default function App() {
             onUploadReference={handleUploadReference}
             onUploadAttachment={handleUploadAttachment}
             onDeleteAttachment={handleDeleteAttachment}
+          />
+        ) : currentView === 'schedule' ? (
+          <ScheduleManager 
+            studentInfos={studentInfos} 
+            paymentRecords={allPaymentRecords} 
           />
         ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">
