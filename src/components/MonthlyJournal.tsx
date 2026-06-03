@@ -276,7 +276,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               value={data.currentLevel}
               onChange={(e) => handleChange('currentLevel', e.target.value)}
             />
-          ) : data.currentLevel}
+          ) : (
+            <div className="whitespace-pre-wrap break-words w-full">{data.currentLevel}</div>
+          )}
         </div>
       </div>
 
@@ -290,7 +292,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
               value={data.monthlyGoal}
               onChange={(e) => handleChange('monthlyGoal', e.target.value)}
             />
-          ) : data.monthlyGoal}
+          ) : (
+            <div className="whitespace-pre-wrap break-words w-full">{data.monthlyGoal}</div>
+          )}
         </div>
       </div>
 
@@ -349,7 +353,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                       value={session.content}
                       onChange={(e) => handleSessionChange(idx, 'content', e.target.value)}
                     />
-                  ) : session.content}
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{session.content}</div>
+                  )}
                 </td>
                 <td className="border border-black p-1 px-2 leading-tight">
                   {isEditing ? (
@@ -358,7 +364,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                       value={session.reaction}
                       onChange={(e) => handleSessionChange(idx, 'reaction', e.target.value)}
                     />
-                  ) : session.reaction}
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{session.reaction}</div>
+                  )}
                 </td>
                 <td className="border border-black p-1 px-2 text-[0.65rem] leading-tight">
                   {isEditing ? (
@@ -367,7 +375,9 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                       value={session.consultation}
                       onChange={(e) => handleSessionChange(idx, 'consultation', e.target.value)}
                     />
-                  ) : session.consultation}
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{session.consultation}</div>
+                  )}
                 </td>
               </tr>
             ))

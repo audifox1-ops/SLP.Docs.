@@ -157,7 +157,9 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                       value={goal.goal}
                       onChange={(e) => handleMonthlyChange(idx, 'goal', e.target.value)}
                     />
-                  ) : goal.goal}
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{goal.goal}</div>
+                  )}
                 </td>
                 <td className="border-b border-r border-black p-1 px-2">
                   {isEditing ? (
@@ -166,7 +168,9 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                       value={goal.content}
                       onChange={(e) => handleMonthlyChange(idx, 'content', e.target.value)}
                     />
-                  ) : goal.content}
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{goal.content}</div>
+                  )}
                 </td>
                 <td className="border-b border-black p-1"></td>
               </tr>
