@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Calendar, FileText } from 'lucide-react';
 
@@ -32,6 +32,14 @@ export const ExportOptionsModal: React.FC<Props> = ({
   const [startMonth, setStartMonth] = useState(defaultMonth);
   const [endYear, setEndYear] = useState(defaultYear);
   const [endMonth, setEndMonth] = useState(defaultMonth);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setStartYear(defaultYear);
+    setStartMonth(defaultMonth);
+    setEndYear(defaultYear);
+    setEndMonth(defaultMonth);
+  }, [isOpen, defaultYear, defaultMonth]);
 
   if (!isOpen) return null;
 

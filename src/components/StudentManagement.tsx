@@ -15,7 +15,45 @@ interface Props {
   onDeleteAttachment: (studentName: string, attachmentUrl: string) => Promise<void>;
 }
 
-export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpdate, onDelete, onGenerateDocument, onUploadReference }) => {
+const createEmptyStudentInfo = (): StudentInfo => ({
+  name: '',
+  birthDate: '',
+  school: '',
+  disabilityType: '기타',
+  treatmentArea: '언어치료',
+  therapistName: '',
+  scheduleDay: '',
+  scheduleTime: '',
+  scheduleFrequency: '1',
+  specialNotes: ''
+});
+
+const dayOptions = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+const timeOptions = [
+  '09:00~09:40',
+  '10:00~10:40',
+  '11:00~11:40',
+  '13:00~13:40',
+  '14:00~14:40',
+  '14:50~15:30',
+  '15:40~16:20',
+  '16:30~17:10',
+  '16:50~17:30',
+  '17:20~18:00',
+  '17:40~18:20',
+  '18:00~18:40'
+];
+
+export const StudentManagement: React.FC<Props> = ({
+  studentInfos,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onGenerateDocument,
+  onUploadReference,
+  onUploadAttachment,
+  onDeleteAttachment
+}) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,15 +108,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
     }
   };
   
-  const [formData, setFormData] = useState<StudentInfo>({
-    name: '',
-    birthDate: '',
-    school: '',
-    disabilityType: '기타',
-    treatmentArea: '언어치료',
-    therapistName: '',
-    specialNotes: ''
-  });
+  const [formData, setFormData] = useState<StudentInfo>(createEmptyStudentInfo());
 
   const filteredInfos = studentInfos.filter(info => 
     info.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -96,15 +126,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
       setIsAdding(false);
     }
     
-    setFormData({
-      name: '',
-      birthDate: '',
-      school: '',
-      disabilityType: '기타',
-      treatmentArea: '언어치료',
-      therapistName: '',
-      specialNotes: ''
-    });
+    setFormData(createEmptyStudentInfo());
   };
 
   const handleEdit = (info: StudentInfo) => {
@@ -116,15 +138,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
   const cancelEdit = () => {
     setIsAdding(false);
     setEditingName(null);
-    setFormData({
-      name: '',
-      birthDate: '',
-      school: '',
-      disabilityType: '기타',
-      treatmentArea: '언어치료',
-      therapistName: '',
-      specialNotes: ''
-    });
+    setFormData(createEmptyStudentInfo());
   };
 
   return (
@@ -259,6 +273,12 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                         <span className="text-text-muted">담당 치료사</span>
                         <span className="font-bold text-primary">{info.therapistName}</span>
                       </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-text-muted flex-shrink-0">수업 일정</span>
+                        <span className="font-semibold text-right leading-snug">
+                          {info.scheduleDay || '요일 미정'} · {info.scheduleTime || '시간 미정'} · 주 {info.scheduleFrequency || '1'}회
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex gap-2 mt-4">
@@ -312,7 +332,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative w-full max-w-lg max-h-[90vh] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
             >
               <div className="p-8 border-b border-border-theme flex justify-between items-center bg-bg-theme/30">
                 <div className="flex items-center gap-3">
@@ -328,7 +348,7 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="p-8 space-y-6">
+              <form onSubmit={handleSubmit} className="p-8 space-y-6 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">학생명</label>
@@ -417,6 +437,53 @@ export const StudentManagement: React.FC<Props> = ({ studentInfos, onAdd, onUpda
                       placeholder="치료사 이름"
                       className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
                     />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">수업 요일</label>
+                    <select
+                      value={formData.scheduleDay || ''}
+                      onChange={(e) => setFormData({ ...formData, scheduleDay: e.target.value })}
+                      className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium cursor-pointer"
+                    >
+                      <option value="">요일 선택</option>
+                      {dayOptions.map(day => (
+                        <option key={day} value={day}>{day}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">수업 시간</label>
+                    <input
+                      type="text"
+                      list="student-schedule-times"
+                      value={formData.scheduleTime || ''}
+                      onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
+                      placeholder="16:50~17:30"
+                      className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
+                    />
+                    <datalist id="student-schedule-times">
+                      {timeOptions.map(time => (
+                        <option key={time} value={time} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">주 횟수</label>
+                    <select
+                      value={formData.scheduleFrequency || '1'}
+                      onChange={(e) => setFormData({ ...formData, scheduleFrequency: e.target.value })}
+                      className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium cursor-pointer"
+                    >
+                      {['1', '2', '3', '4', '5'].map(count => (
+                        <option key={count} value={count}>주 {count}회</option>
+                      ))}
+                      {formData.scheduleFrequency && !['1', '2', '3', '4', '5'].includes(formData.scheduleFrequency) && (
+                        <option value={formData.scheduleFrequency}>주 {formData.scheduleFrequency}회</option>
+                      )}
+                    </select>
                   </div>
                 </div>
                 

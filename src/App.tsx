@@ -82,9 +82,11 @@ export default function App() {
       },
       error: (err) => {
         console.error("Firebase students listener error:", err);
+        const message = err instanceof Error ? err.message : String(err);
         // Ignore specific transient errors so they don't break the app
-        if (!err.message.includes('QUIC_PEER_GOING_AWAY')) {
-          handleFirestoreError(err, OperationType.LIST, 'students');
+        if (!message.includes('QUIC_PEER_GOING_AWAY')) {
+          setUploadStatus({ type: 'error', message: '학생 정보 동기화 중 오류가 발생했습니다.' });
+          setTimeout(() => setUploadStatus(null), 5000);
         }
       }
     });
@@ -110,8 +112,10 @@ export default function App() {
       },
       error: (err) => {
         console.error("Firebase payments listener error:", err);
-        if (!err.message.includes('QUIC_PEER_GOING_AWAY')) {
-          handleFirestoreError(err, OperationType.LIST, 'payment_records');
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes('QUIC_PEER_GOING_AWAY')) {
+          setUploadStatus({ type: 'error', message: '결제/치료 내역 동기화 중 오류가 발생했습니다.' });
+          setTimeout(() => setUploadStatus(null), 5000);
         }
       }
     });
@@ -132,6 +136,14 @@ export default function App() {
           .map(r => r.transactionDate)
           .filter(Boolean)
           .sort();
+        const monthlyAreas: Record<number, string> = {};
+        studentRecords.forEach(r => {
+          const dateStr = normalizeDateStr(String(r.transactionDate));
+          const match = dateStr.match(/(\d{4})[-./\s년]+(\d{1,2})/);
+          if (match) {
+            monthlyAreas[parseInt(match[2], 10)] = String(r.treatmentArea);
+          }
+        });
 
         setSelectedStudent(prev => {
           if (!prev) return null;
@@ -142,7 +154,15 @@ export default function App() {
             prev.disabilityType === updatedInfo.disabilityType &&
             prev.treatmentArea === updatedInfo.treatmentArea &&
             prev.therapistName === updatedInfo.therapistName &&
-            JSON.stringify(prev.paymentDates) === JSON.stringify(paymentDates)
+            prev.schedule.day === (updatedInfo.scheduleDay || '정보 없음') &&
+            prev.schedule.time === (updatedInfo.scheduleTime || '정보 없음') &&
+            prev.schedule.frequency === (updatedInfo.scheduleFrequency || '1') &&
+            prev.referenceData === updatedInfo.referenceData &&
+            prev.referenceFileName === updatedInfo.referenceFileName &&
+            prev.specialNotes === updatedInfo.specialNotes &&
+            JSON.stringify(prev.attachments || []) === JSON.stringify(updatedInfo.attachments || []) &&
+            JSON.stringify(prev.paymentDates) === JSON.stringify(paymentDates) &&
+            JSON.stringify(prev.monthlyAreas || {}) === JSON.stringify(monthlyAreas)
           ) {
             return prev;
           }
@@ -154,7 +174,17 @@ export default function App() {
             disabilityType: updatedInfo.disabilityType,
             treatmentArea: updatedInfo.treatmentArea,
             therapistName: updatedInfo.therapistName,
-            paymentDates: paymentDates
+            schedule: {
+              day: updatedInfo.scheduleDay || '정보 없음',
+              time: updatedInfo.scheduleTime || '정보 없음',
+              frequency: updatedInfo.scheduleFrequency || '1'
+            },
+            paymentDates: paymentDates,
+            monthlyAreas,
+            referenceData: updatedInfo.referenceData,
+            referenceFileName: updatedInfo.referenceFileName,
+            specialNotes: updatedInfo.specialNotes,
+            attachments: updatedInfo.attachments
           };
         });
       }
@@ -283,12 +313,24 @@ export default function App() {
         return;
       }
 
-      const batch = writeBatch(db);
-      snapshot.docs.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      
-      await batch.commit();
+      const BATCH_LIMIT = 450;
+      let batch = writeBatch(db);
+      let pendingDeletes = 0;
+
+      for (const docSnap of snapshot.docs) {
+        batch.delete(docSnap.ref);
+        pendingDeletes++;
+
+        if (pendingDeletes >= BATCH_LIMIT) {
+          await batch.commit();
+          batch = writeBatch(db);
+          pendingDeletes = 0;
+        }
+      }
+
+      if (pendingDeletes > 0) {
+        await batch.commit();
+      }
       setUploadStatus({ type: 'success', message: '모든 데이터가 초기화되었습니다.' });
     } catch (err) {
       console.error("Reset failed:", err);
@@ -372,7 +414,7 @@ export default function App() {
         Papa.parse(file, {
           header: false,
           skipEmptyLines: true,
-          complete: (results) => {
+          complete: async (results) => {
             const parsedData = findHeaderAndParse(results.data as any[][]);
             if (!parsedData) {
               setUploadStatus({ type: 'error', message: '필수 컬럼(학생이름, 거래일자)을 찾을 수 없습니다. 파일 형식을 확인해 주세요.' });
@@ -389,12 +431,16 @@ export default function App() {
               return;
             }
 
-            // Firebase Save with Duplicate Check
-            saveRecordsToFirebase(processed);
-
-            setRawRecords(processed);
-            setIsDataLoaded(true);
-            setUploadStatus({ type: 'success', message: `데이터가 성공적으로 로드되었습니다. 잠시 후 목록이 업데이트됩니다.` });
+            try {
+              // Firebase Save with Duplicate Check
+              await saveRecordsToFirebase(processed);
+              setRawRecords(processed);
+              setIsDataLoaded(true);
+            } catch (saveError) {
+              console.error('CSV 저장 실패:', saveError);
+              setUploadStatus({ type: 'error', message: '데이터 저장 중 오류가 발생했습니다.' });
+              setTimeout(() => setUploadStatus(null), 5000);
+            }
           },
           error: (error) => {
             setUploadStatus({ type: 'error', message: 'CSV 파싱 중 오류가 발생했습니다.' });
@@ -444,13 +490,11 @@ export default function App() {
             }
 
             // Firebase Firestore에 거래 데이터 저장
-            saveRecordsToFirebase(processed, canceledCount);
-
+            await saveRecordsToFirebase(processed, canceledCount);
             setRawRecords(processed);
             setIsDataLoaded(true);
-            setUploadStatus({ type: 'success', message: `데이터가 로드되었습니다. (취소건 ${canceledCount}건 제외) 잠시 후 목록이 업데이트됩니다.` });
           } catch (error) {
-            setUploadStatus({ type: 'error', message: '엑셀 파싱 중 오류가 발생했습니다.' });
+            setUploadStatus({ type: 'error', message: '엑셀 처리 또는 데이터 저장 중 오류가 발생했습니다.' });
             setTimeout(() => setUploadStatus(null), 5000);
           }
         };
@@ -467,8 +511,27 @@ export default function App() {
     let duplicateCount = 0;
 
     try {
-      // Use a batch for efficiency
-      const batch = writeBatch(db);
+      const BATCH_LIMIT = 450;
+      const seenDocIds = new Set<string>();
+      let batch = writeBatch(db);
+      let pendingWrites = 0;
+
+      const getDateKey = (dateValue: string) => {
+        const normalized = normalizeDateStr(String(dateValue));
+        const match = normalized.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+        if (match) {
+          const year = match[1].length === 2 ? `20${match[1]}` : match[1];
+          return `${year}${match[2].padStart(2, '0')}${match[3].padStart(2, '0')}`;
+        }
+        return normalized.replace(/[^0-9]/g, '');
+      };
+
+      const commitPending = async () => {
+        if (pendingWrites === 0) return;
+        await batch.commit();
+        batch = writeBatch(db);
+        pendingWrites = 0;
+      };
       
       for (const record of records) {
         const name = String(record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || '').trim();
@@ -482,25 +545,31 @@ export default function App() {
         if (cancelVal === 'Y' || cancelVal === 'y') continue;
         if (!name || !date) continue;
 
-        // Duplicate Check: name + date + time
         const timeStr = time ? time.substring(0, 5) : '';
-        const isDuplicate = allPaymentRecords.some(r => 
-          r.studentName === name && 
-          r.transactionDate === date && 
+        // 고유 ID 생성 (이름_날짜_시간) - Firestore ID 규칙에 맞게 특수문자 제거
+        const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
+        const safeDate = getDateKey(date);
+        const safeTime = timeStr ? timeStr.replace(/[^0-9]/g, '') : 'notime';
+        const existingRecord = allPaymentRecords.find(r =>
+          r.studentName === name &&
+          getDateKey(String(r.transactionDate)) === safeDate &&
           (r.transactionTime || '') === timeStr
         );
+        const docId = existingRecord?.id || `pay_${safeName}_${safeDate}_${safeTime}`;
+
+        if (seenDocIds.has(docId)) {
+          duplicateCount++;
+          continue;
+        }
+        seenDocIds.add(docId);
+
+        const isDuplicate = Boolean(existingRecord);
 
         if (isDuplicate) {
           duplicateCount++; // 중복(덮어쓰기) 건수로 카운트
         } else {
           addedCount++;
         }
-
-        // 고유 ID 생성 (이름_날짜_시간) - Firestore ID 규칙에 맞게 특수문자 제거
-        const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
-        const safeDate = date.replace(/[^0-9]/g, '');
-        const safeTime = timeStr ? timeStr.replace(/[^0-9]/g, '') : 'notime';
-        const docId = `pay_${safeName}_${safeDate}_${safeTime}`;
 
         const newRecordRef = doc(db, 'payment_records', docId); // 직접 지정된 doc ID 사용
         const recordData: any = {
@@ -517,11 +586,14 @@ export default function App() {
         if (timeStr) recordData.transactionTime = timeStr;
         
         batch.set(newRecordRef, recordData, { merge: true }); // 기존 데이터 덮어쓰기(병합)
+        pendingWrites++;
+
+        if (pendingWrites >= BATCH_LIMIT) {
+          await commitPending();
+        }
       }
 
-      if (addedCount > 0 || duplicateCount > 0) {
-        await batch.commit();
-      }
+      await commitPending();
 
       const cancelMsg = canceledCount > 0 ? ` (취소건 ${canceledCount}건 제외)` : '';
       setUploadStatus({ 
@@ -594,9 +666,9 @@ export default function App() {
       disabilityType: info.disabilityType,
       treatmentArea: info.treatmentArea,
       schedule: {
-        day: '정보 없음',
-        time: '정보 없음',
-        frequency: '1'
+        day: info.scheduleDay || '정보 없음',
+        time: info.scheduleTime || '정보 없음',
+        frequency: info.scheduleFrequency || '1'
       },
       startDate: `${selectedYear}.03`,
       therapistName: info.therapistName,
@@ -604,7 +676,8 @@ export default function App() {
       monthlyAreas: monthlyAreas,
       referenceData: info.referenceData,
       referenceFileName: info.referenceFileName,
-      specialNotes: info.specialNotes
+      specialNotes: info.specialNotes,
+      attachments: info.attachments
     };
 
     setSelectedStudent(student);
@@ -693,6 +766,77 @@ export default function App() {
         consultation: "가정 내에서의 연계 활동 및 지도 방법 안내함."
       };
     });
+  };
+
+  const getDateKey = (dateStr: string, fallbackYear: number = selectedYear) => {
+    const normalized = normalizeDateStr(String(dateStr || ''));
+    const match = normalized.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
+    if (!match) return '';
+
+    const year = match[1]
+      ? match[1].length === 2 ? `20${match[1]}` : match[1]
+      : String(fallbackYear);
+    return `${year}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  };
+
+  const getMonthlyPaymentRecords = (studentName: string) => {
+    const monthKey = String(selectedMonth).padStart(2, '0');
+    return allPaymentRecords
+      .filter(record => {
+        if (record.studentName !== studentName) return false;
+        const dateKey = getDateKey(String(record.transactionDate));
+        return dateKey.startsWith(`${selectedYear}-${monthKey}-`);
+      })
+      .sort((a, b) => {
+        const aKey = `${getDateKey(String(a.transactionDate))}_${a.transactionTime || ''}`;
+        const bKey = `${getDateKey(String(b.transactionDate))}_${b.transactionTime || ''}`;
+        return aKey.localeCompare(bKey);
+      });
+  };
+
+  const buildMonthlyDateCheck = () => {
+    if (!selectedStudent || !monthlyData) {
+      return { rows: [], mismatchCount: 0, paymentCount: 0, sessionCount: 0 };
+    }
+
+    const payRecords = getMonthlyPaymentRecords(selectedStudent.name);
+    const sessions = monthlyData.sessions || [];
+    const rowCount = Math.max(payRecords.length, sessions.length);
+
+    const rows = Array.from({ length: rowCount }).map((_, idx) => {
+      const payment = payRecords[idx];
+      const session = sessions[idx];
+      const paymentKey = payment ? getDateKey(String(payment.transactionDate)) : '';
+      const sessionKey = session?.date ? getDateKey(session.date) : '';
+
+      let status: 'match' | 'mismatch' | 'missing-journal' | 'extra-journal' = 'mismatch';
+      if (paymentKey && sessionKey && paymentKey === sessionKey) status = 'match';
+      else if (paymentKey && !sessionKey) status = 'missing-journal';
+      else if (!paymentKey && sessionKey) status = 'extra-journal';
+
+      const paymentLabel = payment
+        ? formatSessionDate(payment.transactionDate, payment.transactionTime || '', selectedStudent.name).replace('\n', ' · ')
+        : '-';
+      const sessionLabel = session?.date ? session.date.replace('\n', ' · ') : '-';
+
+      return {
+        index: idx + 1,
+        paymentLabel,
+        sessionLabel,
+        status,
+        statusLabel:
+          status === 'match'
+            ? '일치'
+            : status === 'missing-journal'
+              ? '일지 누락'
+              : status === 'extra-journal'
+                ? '추가 일지'
+                : '불일치'
+      };
+    });
+
+    const mismatchCount = rows.filter(row => row.status !== 'match').length;
+    return { rows, mismatchCount, paymentCount: payRecords.length, sessionCount: sessions.length };
   };
 
   const handleSaveDocument = async () => {
@@ -1516,6 +1660,16 @@ export default function App() {
     }
   }, [isExporting, exportMonthlyDataList, exportAction]);
 
+  const monthlyDateCheck = activeTab === 'monthly' && selectedStudent && monthlyData
+    ? buildMonthlyDateCheck()
+    : null;
+
+  const getDateCheckStatusClass = (status: string) => {
+    if (status === 'match') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (status === 'mismatch') return 'bg-red-50 text-red-700 border-red-200';
+    return 'bg-amber-50 text-amber-700 border-amber-200';
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
       {/* Header - Hidden on Print */}
@@ -2051,14 +2205,66 @@ export default function App() {
                               onUpdate={(newData) => setAnnualData(newData)}
                             />
                           ) : activeTab === 'monthly' && monthlyData && monthlyData.sessions ? (
-                            <MonthlyJournal 
-                              student={selectedStudent} 
-                              data={monthlyData} 
-                              month={selectedMonth} 
-                              year={selectedYear} 
-                              isEditing={isEditing}
-                              onUpdate={(newData) => setMonthlyData(newData)}
-                            />
+                            <>
+                              {monthlyDateCheck && (
+                                <div className="no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm overflow-hidden max-w-[210mm] mx-auto">
+                                  <div className="px-5 py-4 border-b border-border-theme bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      {monthlyDateCheck.mismatchCount === 0 ? (
+                                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                                      ) : (
+                                        <AlertCircle className="w-5 h-5 text-amber-500" />
+                                      )}
+                                      <div>
+                                        <div className="text-sm font-black text-text-main">월별일지 날짜 점검</div>
+                                        <div className="text-xs text-text-muted">
+                                          결제 {monthlyDateCheck.paymentCount}건 · 일지 {monthlyDateCheck.sessionCount}회 · 확인 필요 {monthlyDateCheck.mismatchCount}건
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {monthlyDateCheck.rows.length > 0 ? (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-xs border-collapse">
+                                        <thead>
+                                          <tr className="bg-white text-text-muted">
+                                            <th className="text-left px-4 py-2 font-bold border-b border-border-theme w-16">회차</th>
+                                            <th className="text-left px-4 py-2 font-bold border-b border-border-theme">결제 기록</th>
+                                            <th className="text-left px-4 py-2 font-bold border-b border-border-theme">일지 날짜</th>
+                                            <th className="text-left px-4 py-2 font-bold border-b border-border-theme w-28">상태</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {monthlyDateCheck.rows.map(row => (
+                                            <tr key={row.index} className="border-b border-border-theme/60 last:border-b-0">
+                                              <td className="px-4 py-2 font-bold text-text-muted">{row.index}</td>
+                                              <td className="px-4 py-2 font-semibold text-text-main whitespace-nowrap">{row.paymentLabel}</td>
+                                              <td className="px-4 py-2 font-semibold text-text-main whitespace-nowrap">{row.sessionLabel}</td>
+                                              <td className="px-4 py-2">
+                                                <span className={`inline-flex px-2 py-1 rounded-full border text-[11px] font-bold ${getDateCheckStatusClass(row.status)}`}>
+                                                  {row.statusLabel}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <div className="px-5 py-4 text-sm text-text-muted">선택한 월의 결제 기록과 일지 회기가 없습니다.</div>
+                                  )}
+                                </div>
+                              )}
+                              <MonthlyJournal 
+                                student={selectedStudent} 
+                                data={monthlyData} 
+                                month={selectedMonth} 
+                                year={selectedYear} 
+                                isEditing={isEditing}
+                                onUpdate={(newData) => setMonthlyData(newData)}
+                              />
+                            </>
                           ) : (
                             <div className="flex flex-col items-center justify-center h-full py-20 text-text-muted opacity-50">
                               <FileText className="w-16 h-16 mb-4" />

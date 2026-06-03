@@ -44,12 +44,22 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     setCurrentDate(new Date());
   };
 
-  // Convert 'YYYY. MM. DD.' to a comparable date string 'YYYY-MM-DD'
-  const parsePaymentDate = (dateStr: string) => {
-    const parts = dateStr.split('.').map(p => p.trim());
-    if (parts.length >= 3) {
-      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+  const normalizePaymentDate = (dateStr: string) => {
+    const raw = String(dateStr || '').trim();
+    if (!raw) return '';
+
+    if (/^\d{5}$/.test(raw)) {
+      const serial = parseInt(raw, 10);
+      const date = new Date((serial - 25569) * 86400 * 1000);
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
+
+    const match = raw.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+    if (match) {
+      const fullYear = match[1].length === 2 ? `20${match[1]}` : match[1];
+      return `${fullYear}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+    }
+
     return '';
   };
 
@@ -102,7 +112,8 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     // Map actual payments
     paymentRecords.forEach(record => {
       if (!record.transactionDate) return;
-      const dateStr = parsePaymentDate(record.transactionDate);
+      const dateStr = normalizePaymentDate(record.transactionDate);
+      if (!dateStr) return;
       if (map.has(dateStr)) {
         map.get(dateStr)!.actual.push(record);
       } else {
