@@ -673,6 +673,46 @@ export default function App() {
   const handleSaveDocument = async () => {
     if (!selectedStudent) return;
     
+    // ── 저장 권한 강화: 월간일지 날짜 검증 ──
+    if (activeTab === 'monthly' && monthlyData) {
+      const yearStr = selectedYear.toString();
+      const payRecords = allPaymentRecords
+        .filter(r => {
+          if (r.studentName !== selectedStudent.name) return false;
+          const dStr = normalizeDateStr(String(r.transactionDate));
+          const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
+          if (m) {
+            const yearMatch = m[1].length === 2 ? yearStr.endsWith(m[1]) : m[1] === yearStr;
+            return yearMatch && parseInt(m[2], 10) === selectedMonth;
+          }
+          return false;
+        })
+        .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+
+      if (payRecords.length > 0) {
+        // 저장될 날짜 추출
+        const savingDays = monthlyData.sessions
+          .map(s => { const m = s.date.match(/(\d{1,2})\/(\d{1,2})/); return m ? parseInt(m[2]) : null; })
+          .filter(Boolean);
+        const correctDays = payRecords.map(r => {
+          const m = normalizeDateStr(String(r.transactionDate)).match(/\d{4}-\d{2}-(\d{2})/);
+          return m ? parseInt(m[1]) : null;
+        }).filter(Boolean);
+
+        const isMismatch = savingDays.join(',') !== correctDays.join(',');
+        if (isMismatch) {
+          const confirmed = window.confirm(
+            `⚠️ 날짜 불일치 경고\n\n` +
+            `저장하려는 날짜: ${savingDays.join('일, ')}일\n` +
+            `결제 기록의 날짜: ${correctDays.join('일, ')}일\n\n` +
+            `날짜가 결제 기록과 다릅니다. 그래도 저장하시겠습니까?\n` +
+            `(취소 시 날짜를 확인 후 다시 저장해 주세요)`
+          );
+          if (!confirmed) return;
+        }
+      }
+    }
+
     setIsLoading(true);
     try {
       if (activeTab === 'annual' && annualData) {
@@ -816,16 +856,39 @@ export default function App() {
     
     setIsLoading(true);
     try {
-      // Generate 4 virtual dates for the selected month (e.g., every Wednesday)
-      const virtualDates = [];
-      for (let i = 1; i <= 4; i++) {
-        const day = 7 * i - 3; // Roughly once a week
-        virtualDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+      // ── 핵심 수정: 가상 날짜 대신 반드시 실제 payment_records 날짜를 사용 ──
+      const yearStr = selectedYear.toString();
+      const monthlyPayRecords = allPaymentRecords
+        .filter(r => {
+          if (r.studentName !== selectedStudent.name) return false;
+          const dStr = normalizeDateStr(String(r.transactionDate));
+          const m = dStr.match(/(\d{2,4})[-./\s년]+(\d{1,2})/);
+          if (m) {
+            const y = m[1];
+            const mo = m[2];
+            const yearMatch = y.length === 2 ? yearStr.endsWith(y) : y === yearStr;
+            return yearMatch && parseInt(mo, 10) === selectedMonth;
+          }
+          return false;
+        })
+        .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
+
+      // 결제 기록이 있으면 실제 날짜, 없을 때만 가상 날짜 사용
+      let paymentDates: string[];
+      if (monthlyPayRecords.length > 0) {
+        paymentDates = monthlyPayRecords.map(r => r.transactionDate);
+      } else {
+        // 결제 기록 없을 때만 폴백 (임시)
+        paymentDates = [];
+        for (let i = 1; i <= 4; i++) {
+          const day = 7 * i - 3;
+          paymentDates.push(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+        }
       }
 
-      const studentWithVirtualDates = { ...selectedStudent, paymentDates: virtualDates };
+      const studentWithDates = { ...selectedStudent, paymentDates };
       
-      // 1. Get goal from existing annual data if available, otherwise generate
+      // 1. 연간계획서 목표 조회
       let currentAnnual = annualData;
       if (!currentAnnual) {
         currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData);
@@ -834,48 +897,61 @@ export default function App() {
       
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       
-      const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData);
+      const monthly = await generateMonthlyJournal(studentWithDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData);
 
-      // AI가 반환한 세션 날짜에 수업 시간 추가
+      // AI가 반환한 세션 날짜를 반드시 실제 결제 날짜로 교체
       const currentStudentInfo = studentInfos.find(info => info.name === selectedStudent.name);
-      monthly.sessions = monthly.sessions.map(session => {
-        if (!session.date) return session;
-        // 이미 포맷이 적용된 경우 건너뜀
-        if (session.date.includes('(')) return session;
-        // 해당 날짜의 결제 기록에서 거래시간 조회
-        const record = allPaymentRecords.find(r => {
-          if (r.studentName !== selectedStudent.name) return false;
-          const dStr = normalizeDateStr(r.transactionDate);
-          const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-          const sd = normalizeDateStr(session.date);
-          const sm = sd.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-          if (dm && sm) {
-            return dm[1] === sm[1] && parseInt(dm[2]) === parseInt(sm[2]) && parseInt(dm[3]) === parseInt(sm[3]);
-          }
-          return false;
+      
+      if (monthlyPayRecords.length > 0) {
+        // 실제 결제 기록이 있으면 날짜를 100% 결제 기록 기준으로 설정
+        monthly.sessions = monthlyPayRecords.map((r, i) => ({
+          date: formatSessionDate(r.transactionDate, r.transactionTime || '', selectedStudent.name),
+          content: monthly.sessions[i]?.content || '',
+          reaction: monthly.sessions[i]?.reaction || '',
+          consultation: monthly.sessions[i]?.consultation || ''
+        }));
+      } else {
+        // 결제 기록 없으면 AI 날짜에 수업시간만 추가
+        monthly.sessions = monthly.sessions.map(session => {
+          if (!session.date) return session;
+          if (session.date.includes('(')) return session;
+          const record = allPaymentRecords.find(r => {
+            if (r.studentName !== selectedStudent.name) return false;
+            const dStr = normalizeDateStr(r.transactionDate);
+            const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+            const sd = normalizeDateStr(session.date);
+            const sm = sd.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+            if (dm && sm) {
+              return dm[1] === sm[1] && parseInt(dm[2]) === parseInt(sm[2]) && parseInt(dm[3]) === parseInt(sm[3]);
+            }
+            return false;
+          });
+          const txTime = record?.transactionTime || '';
+          const fullDate = record?.transactionDate || session.date;
+          return { ...session, date: formatSessionDate(fullDate, txTime, selectedStudent.name) };
         });
-        const txTime = record?.transactionTime || '';
-        const fullDate = record?.transactionDate || session.date;
-        return { ...session, date: formatSessionDate(fullDate, txTime, selectedStudent.name) };
-      });
+      }
 
       setMonthlyData(monthly);
       
-      setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
+      const msg = monthlyPayRecords.length > 0
+        ? `AI 일지가 생성되었습니다. (실제 수업날짜 ${monthlyPayRecords.length}회 기준)`
+        : '가상 일지가 생성되었습니다. (결제 내역 없음 - 날짜 확인 후 저장하세요)';
+      setUploadStatus({ type: monthlyPayRecords.length > 0 ? 'success' : 'error', message: msg });
     } catch (error: any) {
       console.error("Draft generation failed:", error);
       
       if (error.message?.includes('429') || JSON.stringify(error).includes('429')) {
         setUploadStatus({ 
           type: 'error', 
-          message: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도해 주세요. (무료 티어는 사용량이 제한되어 있습니다.)' 
+          message: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도해 주세요.' 
         });
       } else {
         setUploadStatus({ type: 'error', message: '가상 일지 생성 중 오류가 발생했습니다.' });
       }
     } finally {
       setIsLoading(false);
-      setTimeout(() => setUploadStatus(null), 3000);
+      setTimeout(() => setUploadStatus(null), 5000);
     }
   };
 
