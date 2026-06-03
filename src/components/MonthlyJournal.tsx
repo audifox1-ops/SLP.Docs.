@@ -175,7 +175,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
   };
 
   return (
-    <div className="bg-white w-full max-w-[210mm] mx-auto font-sans text-black p-2 sm:p-[5mm] md:p-[8mm] box-border document-container print:p-0">
+    <div className={`bg-white w-full ${isEditing ? 'max-w-none' : 'max-w-[210mm]'} mx-auto font-sans text-black p-2 sm:p-[5mm] md:p-[8mm] box-border document-container print:p-0`}>
       {/* Header Section */}
       <table className="w-full border-none mb-2">
         <tbody>
@@ -269,10 +269,10 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       {/* 현행 수준 */}
       <div className="flex border border-black border-b-0">
         <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">현행 수준</div>
-        <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
+        <div className={`p-1.5 px-3 text-[0.75rem] leading-tight flex-1 ${isEditing ? 'min-h-[130px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
-              className="w-full h-12 border border-indigo-200 rounded p-1 outline-none text-[0.75rem]"
+              className="w-full min-h-[110px] resize-y border border-indigo-200 rounded p-2 outline-none text-[0.75rem] leading-relaxed"
               value={data.currentLevel}
               onChange={(e) => handleChange('currentLevel', e.target.value)}
             />
@@ -285,10 +285,10 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       {/* 치료 목표 */}
       <div className="flex border border-black mb-2">
         <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 목표</div>
-        <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
+        <div className={`p-1.5 px-3 text-[0.75rem] leading-tight flex-1 ${isEditing ? 'min-h-[130px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
-              className="w-full h-12 border border-indigo-200 rounded p-1 outline-none text-[0.75rem]"
+              className="w-full min-h-[110px] resize-y border border-indigo-200 rounded p-2 outline-none text-[0.75rem] leading-relaxed"
               value={data.monthlyGoal}
               onChange={(e) => handleChange('monthlyGoal', e.target.value)}
             />
@@ -311,7 +311,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
         <tbody>
           {data.sessions.length > 0 ? (
             data.sessions.map((session, idx) => (
-              <tr key={idx} className="h-14">
+              <tr key={idx} className={isEditing ? 'align-top' : 'h-14'}>
                 {/* 날짜 셀: 항상 클릭 편집 가능 */}
                 <td className="border border-black p-1 text-center font-bold text-[0.72rem] leading-snug relative">
                   {editingDateIdx === idx ? (
@@ -349,7 +349,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                 <td className="border border-black p-1 px-2 leading-tight">
                   {isEditing ? (
                     <textarea
-                      className="w-full h-full min-h-[40px] bg-indigo-50/30 border-none outline-none p-1 text-[0.7rem]"
+                      className="w-full min-h-[96px] resize-y bg-indigo-50/30 border-none outline-none p-2 text-[0.7rem] leading-relaxed"
                       value={session.content}
                       onChange={(e) => handleSessionChange(idx, 'content', e.target.value)}
                     />
@@ -360,7 +360,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                 <td className="border border-black p-1 px-2 leading-tight">
                   {isEditing ? (
                     <textarea
-                      className="w-full h-full min-h-[40px] bg-indigo-50/30 border-none outline-none p-1 text-[0.7rem]"
+                      className="w-full min-h-[96px] resize-y bg-indigo-50/30 border-none outline-none p-2 text-[0.7rem] leading-relaxed"
                       value={session.reaction}
                       onChange={(e) => handleSessionChange(idx, 'reaction', e.target.value)}
                     />
@@ -371,7 +371,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                 <td className="border border-black p-1 px-2 text-[0.65rem] leading-tight">
                   {isEditing ? (
                     <textarea
-                      className="w-full h-full min-h-[40px] bg-indigo-50/30 border-none outline-none p-1 text-[0.65rem]"
+                      className="w-full min-h-[96px] resize-y bg-indigo-50/30 border-none outline-none p-2 text-[0.65rem] leading-relaxed"
                       value={session.consultation}
                       onChange={(e) => handleSessionChange(idx, 'consultation', e.target.value)}
                     />
@@ -394,10 +394,10 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       {/* 치료 결과 */}
       <div className="flex border border-black">
         <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 결과</div>
-        <div className="p-1.5 px-3 text-[0.75rem] leading-tight flex-1 min-h-[30px]">
+        <div className={`p-1.5 px-3 text-[0.75rem] leading-tight flex-1 ${isEditing ? 'min-h-[130px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
-              className="w-full h-12 border border-indigo-200 rounded p-1 outline-none text-[0.75rem]"
+              className="w-full min-h-[110px] resize-y border border-indigo-200 rounded p-2 outline-none text-[0.75rem] leading-relaxed"
               value={data.result}
               onChange={(e) => handleChange('result', e.target.value)}
             />

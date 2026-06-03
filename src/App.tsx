@@ -1364,55 +1364,6 @@ export default function App() {
         }
 
         if (savedMonthly) {
-          
-          // 기존 데이터의 날짜 필드에 시간이 누락된 경우(줄바꿈이 없는 경우) 현재 스케줄 시간을 병합
-          const currentStudentInfo = studentInfos.find(info => info.name === student.name);
-          if (currentStudentInfo) {
-            savedMonthly.sessions = savedMonthly.sessions.map(session => {
-              if (session.date && !session.date.includes('\n')) {
-                // Match "2026-05-04", "05/04", "5/4", etc.
-                const m = session.date.match(/(?:(?:20\d\d)[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
-                let txTime = '';
-                let fullDateStr = session.date;
-                if (m) {
-                  const mo = parseInt(m[1]);
-                  const da = parseInt(m[2]);
-                  const record = allPaymentRecords.find(r => {
-                    if (r.studentName !== student.name) return false;
-                    const dStr = normalizeDateStr(r.transactionDate);
-                    const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-                    if (dm) {
-                      return parseInt(dm[2]) === mo && parseInt(dm[3]) === da && parseInt(dm[1]) === selectedYear;
-                    }
-                    return false;
-                  });
-                  if (record) {
-                    txTime = record.transactionTime;
-                    fullDateStr = record.transactionDate;
-                  }
-                }
-
-                // If it lacks parentheses, it was a raw date string, so reformat it entirely
-                if (!session.date.includes('(')) {
-                  session.date = formatSessionDate(fullDateStr, txTime, student.name);
-                } else if (txTime && fullDateStr) {
-                  const timeStr = getSessionTime(currentStudentInfo, fullDateStr, txTime);
-                  if (timeStr) session.date = `${session.date}\n${timeStr}`;
-                } else {
-                  // Fallback to fixed time if no transaction found
-                  const timeStr = getSessionTime(currentStudentInfo, `${selectedYear}-${selectedMonth}-01`, "");
-                  if (timeStr && timeStr !== '정보 없음') session.date = `${session.date}\n${timeStr}`;
-                }
-              }
-              return session;
-            });
-          }
-          
-          // 세션이 4개 미만이면 빈 세션을 추가하여 사용자가 빈 칸의 날짜를 추가할 수 있게 함
-          while (savedMonthly.sessions.length < 4) {
-            savedMonthly.sessions.push({ date: '', content: '', reaction: '', consultation: '' });
-          }
-
           setMonthlyData(savedMonthly);
           
           // Also try to load annual if not present (needed for goals context)
@@ -1497,13 +1448,6 @@ export default function App() {
       fetchData(selectedStudent, journalTone);
     }
   }, [selectedMonth, selectedYear]);
-
-  // Hook for Auto-Generation
-  useEffect(() => {
-    if (activeTab === 'monthly' && selectedStudent && monthlyData && monthlyData.sessions.length === 0 && !isLoading) {
-      handleGenerateDraft();
-    }
-  }, [activeTab, monthlyData, selectedStudent, isLoading]);
 
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   
@@ -2172,7 +2116,7 @@ export default function App() {
                   </div>
 
                   {/* Document Preview Container */}
-                  <div className="bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme p-6 md:p-12 overflow-auto relative print:hidden">
+                  <div className={`bg-white flex-1 rounded-3xl shadow-2xl shadow-slate-200/50 border border-border-theme overflow-auto relative print:hidden ${isEditing ? 'p-2 md:p-4' : 'p-6 md:p-12'}`}>
                     <AnimatePresence mode="wait">
                       {isLoading || isExporting ? (
                         <motion.div 
@@ -2194,7 +2138,7 @@ export default function App() {
                           key={activeTab + (selectedStudent?.id || '')}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className="document-container min-h-full"
+                          className={`document-container min-h-full ${isEditing ? 'w-full max-w-none' : ''}`}
                         >
                           {activeTab === 'annual' && annualData && annualData.currentLevel ? (
                             <AnnualPlan 
@@ -2207,7 +2151,7 @@ export default function App() {
                           ) : activeTab === 'monthly' && monthlyData && monthlyData.sessions ? (
                             <>
                               {monthlyDateCheck && (
-                                <div className="no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm overflow-hidden max-w-[210mm] mx-auto">
+                                <div className={`no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm overflow-hidden mx-auto ${isEditing ? 'max-w-none' : 'max-w-[210mm]'}`}>
                                   <div className="px-5 py-4 border-b border-border-theme bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                     <div className="flex items-center gap-2">
                                       {monthlyDateCheck.mismatchCount === 0 ? (

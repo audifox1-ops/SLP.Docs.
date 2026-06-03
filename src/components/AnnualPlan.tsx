@@ -22,7 +22,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
     }
   };
   return (
-    <div className="bg-white w-full max-w-[210mm] mx-auto font-sans text-black p-2 sm:p-[5mm] md:p-[8mm] box-border document-container print:p-0">
+    <div className={`bg-white w-full ${isEditing ? 'max-w-none' : 'max-w-[210mm]'} mx-auto font-sans text-black p-2 sm:p-[5mm] md:p-[8mm] box-border document-container print:p-0`}>
       {/* Header Section - Using table for rigid layout in print */}
       <table className="w-full border-none mb-2">
         <tbody>
@@ -97,10 +97,10 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       {/* 현행 수준 */}
       <div className="mb-2 border border-black">
         <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">현행 수준 및 특성</div>
-        <div className="p-1.5 px-3 text-[0.75rem] leading-tight min-h-[30px]">
+        <div className={`p-1.5 px-3 text-[0.75rem] leading-tight ${isEditing ? 'min-h-[160px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
-              className="w-full h-20 border border-indigo-200 rounded p-1 outline-none text-[0.75rem]"
+              className="w-full min-h-[140px] resize-y border border-indigo-200 rounded p-2 outline-none text-[0.75rem] leading-relaxed"
               value={data.currentLevel.join('\n')}
               onChange={(e) => handleChange('currentLevel', e.target.value.split('\n'))}
             />
@@ -117,10 +117,10 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       {/* 장기 목표 */}
       <div className="mb-2 border border-black">
         <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">장기 치료 목표</div>
-        <div className="p-1.5 px-3 text-[0.75rem] leading-tight min-h-[30px]">
+        <div className={`p-1.5 px-3 text-[0.75rem] leading-tight ${isEditing ? 'min-h-[160px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
-              className="w-full h-20 border border-indigo-200 rounded p-1 outline-none text-[0.75rem]"
+              className="w-full min-h-[140px] resize-y border border-indigo-200 rounded p-2 outline-none text-[0.75rem] leading-relaxed"
               value={data.longTermGoals.join('\n')}
               onChange={(e) => handleChange('longTermGoals', e.target.value.split('\n'))}
             />
@@ -148,12 +148,12 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
           </thead>
           <tbody>
             {data.monthlyGoals.map((goal, idx) => (
-              <tr key={idx} className="h-8">
+              <tr key={idx} className={isEditing ? 'align-top' : 'h-8'}>
                 <td className="border-b border-r border-black p-1 text-center font-bold">{goal.month}월</td>
                 <td className="border-b border-r border-black p-1 px-2">
                   {isEditing ? (
                     <textarea
-                      className="w-full h-full min-h-[30px] border-none bg-indigo-50/30 p-1 text-[0.7rem] outline-none"
+                      className="w-full min-h-[88px] resize-y border-none bg-indigo-50/30 p-2 text-[0.7rem] leading-relaxed outline-none"
                       value={goal.goal}
                       onChange={(e) => handleMonthlyChange(idx, 'goal', e.target.value)}
                     />
@@ -164,7 +164,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                 <td className="border-b border-r border-black p-1 px-2">
                   {isEditing ? (
                     <textarea
-                      className="w-full h-full min-h-[30px] border-none bg-indigo-50/30 p-1 text-[0.7rem] outline-none"
+                      className="w-full min-h-[88px] resize-y border-none bg-indigo-50/30 p-2 text-[0.7rem] leading-relaxed outline-none"
                       value={goal.content}
                       onChange={(e) => handleMonthlyChange(idx, 'content', e.target.value)}
                     />
