@@ -921,15 +921,15 @@ export default function App() {
     if (!fixedTime) fixedTime = info?.scheduleTime || '';
 
     // 등록된 scheduleTime이 있고 결제시간과 합리적으로 일치하면 그대로 반환
-    // 수업 40분 + 결제까지 최대 20분 → 결제는 수업시작 후 40~60분 사이
+    // 실제 패턴: 결제는 수업 시작 후 20분(수업 중)~70분(종료 후 30분) 범위에서 발생
     if (fixedTime && fixedTime !== '정보 없음') {
       const [start] = fixedTime.split('~');
       if (start) {
         const sParts = start.split(':');
         if (sParts.length >= 2) {
           const startMin = parseInt(sParts[0]) * 60 + parseInt(sParts[1]);
-          // 결제시각은 수업시작+40분(종료) ~ 수업시작+60분(종료 후 20분) 사이
-          if (txMin >= startMin + 38 && txMin <= startMin + 70) {
+          // 결제는 수업시작 후 20분 ~ 수업시작 후 70분 사이 (수업 중 결제 포함)
+          if (txMin >= startMin + 20 && txMin <= startMin + 70) {
             return fixedTime;
           }
         }
@@ -947,8 +947,8 @@ export default function App() {
     // 9:00 ~ 18:30까지 10분 단위 슬롯
     for (let slotStart = 9 * 60; slotStart <= 18 * 60 + 30; slotStart += 10) {
       const sessionEnd = slotStart + 40; // 수업 종료 = 시작 + 40분
-      // 결제는 종료 후 0~20분 이내
-      if (txMin >= sessionEnd && txMin <= sessionEnd + 20) {
+      // 결제는 종료 후 0~25분 이내
+      if (txMin >= sessionEnd && txMin <= sessionEnd + 25) {
         const diff = txMin - sessionEnd;
         if (diff < minDiff) {
           minDiff = diff;
