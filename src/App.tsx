@@ -387,7 +387,7 @@ export default function App() {
           }
         });
       } else if (extension === 'xlsx' || extension === 'xls') {
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
           try {
             const data = new Uint8Array(e.target?.result as ArrayBuffer);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -402,7 +402,15 @@ export default function App() {
               return;
             }
 
-            const processed = normalizeData(parsedData) as RawRecord[];
+            // 취소 거래 필터링 (취소여부 = 'Y')
+            const cancelKeys = ['취소여부', '취소', 'cancel', 'Cancel'];
+            const filtered = parsedData.filter(row => {
+              const cancelVal = cancelKeys.map(k => String(row[k] || '')).find(v => v !== '');
+              return cancelVal !== 'Y' && cancelVal !== 'y';
+            });
+            const canceledCount = parsedData.length - filtered.length;
+
+            const processed = normalizeData(filtered) as RawRecord[];
             const validation = validateData(processed);
 
             if (!validation.valid) {
@@ -411,12 +419,21 @@ export default function App() {
               return;
             }
 
-            // Firebase Save with Duplicate Check
-            saveRecordsToFirebase(processed);
+            // Firebase Storage에 원본 파일 저장
+            try {
+              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+              const storagePath = `payment_files/${timestamp}_${file.name}`;
+              await uploadBlob(new Blob([data], { type: file.type }), storagePath);
+            } catch (storageErr) {
+              console.warn('Storage 저장 실패(무시):', storageErr);
+            }
+
+            // Firebase Firestore에 거래 데이터 저장
+            saveRecordsToFirebase(processed, canceledCount);
 
             setRawRecords(processed);
             setIsDataLoaded(true);
-            setUploadStatus({ type: 'success', message: `데이터가 성공적으로 로드되었습니다. 잠시 후 목록이 업데이트됩니다.` });
+            setUploadStatus({ type: 'success', message: `데이터가 로드되었습니다. (취소건 ${canceledCount}건 제외) 잠시 후 목록이 업데이트됩니다.` });
           } catch (error) {
             setUploadStatus({ type: 'error', message: '엑셀 파싱 중 오류가 발생했습니다.' });
             setTimeout(() => setUploadStatus(null), 5000);
@@ -429,7 +446,7 @@ export default function App() {
       }
     };
 
-  const saveRecordsToFirebase = async (records: RawRecord[]) => {
+  const saveRecordsToFirebase = async (records: RawRecord[], canceledCount: number = 0) => {
     setIsLoading(true);
     let addedCount = 0;
     let duplicateCount = 0;
@@ -444,6 +461,11 @@ export default function App() {
         const time = String(record['거래시간'] || record['시간'] || record['결제시간'] || '').trim();
         const amount = record['금액'] || 0;
         const area = String(record['지원영역'] || record['지원 영역'] || record['치료영역'] || record['영역'] || record['서비스'] || '언어치료').trim();
+        const cancelVal = String(record['취소여부'] || record['취소'] || '').trim();
+
+        // 취소 거래 스킵
+        if (cancelVal === 'Y' || cancelVal === 'y') continue;
+        if (!name || !date) continue;
 
         // Duplicate Check: name + date + amount + area
         const isDuplicate = allPaymentRecords.some(r => 
@@ -476,9 +498,10 @@ export default function App() {
         await batch.commit();
       }
 
+      const cancelMsg = canceledCount > 0 ? ` (취소건 ${canceledCount}건 제외)` : '';
       setUploadStatus({ 
         type: 'success', 
-        message: `총 ${addedCount}건이 업로드되었으며, ${duplicateCount}건의 중복 데이터는 제외되었습니다.` 
+        message: `총 ${addedCount}건이 업로드되었으며, ${duplicateCount}건의 중복 데이터는 제외되었습니다.${cancelMsg}` 
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'payment_records');
@@ -872,12 +895,14 @@ export default function App() {
   };
 
   const getSessionTime = (info: any, dateStr: string, txTime: string): string => {
+    // txTime이 없으면 등록된 scheduleTime 반환
     if (!txTime) return info?.scheduleTime || '';
     
     const parts = String(txTime).split(':');
     if (parts.length < 2) return '';
     const txMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
 
+    // 1순위: scheduleTimeHistory 또는 scheduleTime이 등록된 경우 → 해당 시간대가 결제시간과 일치하는지 검증
     let fixedTime = '';
     if (info?.scheduleTimeHistory?.length > 0) {
       const m = String(dateStr).match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
@@ -895,34 +920,57 @@ export default function App() {
     }
     if (!fixedTime) fixedTime = info?.scheduleTime || '';
 
+    // 등록된 scheduleTime이 있고 결제시간과 합리적으로 일치하면 그대로 반환
+    // 수업 40분 + 결제까지 최대 20분 → 결제는 수업시작 후 40~60분 사이
     if (fixedTime && fixedTime !== '정보 없음') {
       const [start] = fixedTime.split('~');
       if (start) {
         const sParts = start.split(':');
         if (sParts.length >= 2) {
           const startMin = parseInt(sParts[0]) * 60 + parseInt(sParts[1]);
-          const expectedTxMin = startMin + 50; 
-          if (Math.abs(txMin - expectedTxMin) <= 60) {
+          // 결제시각은 수업시작+40분(종료) ~ 수업시작+60분(종료 후 20분) 사이
+          if (txMin >= startMin + 38 && txMin <= startMin + 70) {
             return fixedTime;
           }
         }
       }
     }
 
-    let closestSlotStart = 9 * 60;
+    // 2순위: 결제시간에서 수업시작 역산
+    // 실제 패턴: 수업은 10분 단위 시작(9:00, 9:10 ... 18:30), 40분 수업
+    // 결제는 수업 종료(시작+40분) 후 0~20분 이내에 발생
+    const fmt = (min: number) => `${Math.floor(min/60).toString().padStart(2, '0')}:${(min%60).toString().padStart(2, '0')}`;
+    
+    let bestSlot: number | null = null;
     let minDiff = 9999;
-    for (let i = 0; i < 15; i++) {
-      const slotStart = 9 * 60 + i * 50;
-      const expectedTx = slotStart + 50;
-      const diff = Math.abs(txMin - expectedTx);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestSlotStart = slotStart;
+    
+    // 9:00 ~ 18:30까지 10분 단위 슬롯
+    for (let slotStart = 9 * 60; slotStart <= 18 * 60 + 30; slotStart += 10) {
+      const sessionEnd = slotStart + 40; // 수업 종료 = 시작 + 40분
+      // 결제는 종료 후 0~20분 이내
+      if (txMin >= sessionEnd && txMin <= sessionEnd + 20) {
+        const diff = txMin - sessionEnd;
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestSlot = slotStart;
+        }
       }
     }
     
-    const fmt = (min) => `${Math.floor(min/60).toString().padStart(2, '0')}:${(min%60).toString().padStart(2, '0')}`;
-    return `${fmt(closestSlotStart)}~${fmt(closestSlotStart + 40)}`;
+    // 범위 내 슬롯을 못 찾으면 가장 가까운 슬롯 사용 (범위 30분으로 확장)
+    if (bestSlot === null) {
+      for (let slotStart = 9 * 60; slotStart <= 18 * 60 + 30; slotStart += 10) {
+        const sessionEnd = slotStart + 40;
+        const diff = Math.abs(txMin - sessionEnd);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestSlot = slotStart;
+        }
+      }
+    }
+    
+    if (bestSlot === null) return '';
+    return `${fmt(bestSlot)}~${fmt(bestSlot + 40)}`;
   };
 
   // 날짜 문자열 포맷: M/D(요일)\n수업시간  — 컴포넌트 레벨에서 공유
