@@ -812,6 +812,30 @@ export default function App() {
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       
       const monthly = await generateMonthlyJournal(studentWithVirtualDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData);
+
+      // AI가 반환한 세션 날짜에 수업 시간 추가
+      const currentStudentInfo = studentInfos.find(info => info.name === selectedStudent.name);
+      monthly.sessions = monthly.sessions.map(session => {
+        if (!session.date) return session;
+        // 이미 포맷이 적용된 경우 건너뜀
+        if (session.date.includes('(')) return session;
+        // 해당 날짜의 결제 기록에서 거래시간 조회
+        const record = allPaymentRecords.find(r => {
+          if (r.studentName !== selectedStudent.name) return false;
+          const dStr = normalizeDateStr(r.transactionDate);
+          const dm = dStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+          const sd = normalizeDateStr(session.date);
+          const sm = sd.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+          if (dm && sm) {
+            return dm[1] === sm[1] && parseInt(dm[2]) === parseInt(sm[2]) && parseInt(dm[3]) === parseInt(sm[3]);
+          }
+          return false;
+        });
+        const txTime = record?.transactionTime || '';
+        const fullDate = record?.transactionDate || session.date;
+        return { ...session, date: formatSessionDate(fullDate, txTime, selectedStudent.name) };
+      });
+
       setMonthlyData(monthly);
       
       setUploadStatus({ type: 'success', message: '가상 일지가 생성되었습니다. (결제 내역이 없는 경우 임시로 생성됨)' });
@@ -899,6 +923,29 @@ export default function App() {
     
     const fmt = (min) => `${Math.floor(min/60).toString().padStart(2, '0')}:${(min%60).toString().padStart(2, '0')}`;
     return `${fmt(closestSlotStart)}~${fmt(closestSlotStart + 40)}`;
+  };
+
+  // 날짜 문자열 포맷: M/D(요일)\n수업시간  — 컴포넌트 레벨에서 공유
+  const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+  const formatSessionDate = (dateStr: string, txTime?: string, studentName?: string): string => {
+    const normDateStr = normalizeDateStr(dateStr);
+    const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+    if (match) {
+      const month = parseInt(match[2]);
+      const day = parseInt(match[3]);
+      const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
+      const base = `${month}/${day}(${dayName})`;
+
+      const targetName = studentName || selectedStudent?.name || '';
+      const currentStudentInfo = studentInfos.find(info => info.name === targetName);
+      const time = getSessionTime(currentStudentInfo, normDateStr, txTime || '');
+
+      if (time && time !== '정보 없음' && time !== '') {
+        return `${base}\n${time}`;
+      }
+      return base;
+    }
+    return normDateStr;
   };
 
   const fetchData = async (student: Student, toneToUse: JournalTone = journalTone) => {
@@ -993,7 +1040,7 @@ export default function App() {
 
                 // If it lacks parentheses, it was a raw date string, so reformat it entirely
                 if (!session.date.includes('(')) {
-                  session.date = formatSessionDate(fullDateStr, txTime);
+                  session.date = formatSessionDate(fullDateStr, txTime, student.name);
                 } else if (txTime && fullDateStr) {
                   const timeStr = getSessionTime(currentStudentInfo, fullDateStr, txTime);
                   if (timeStr) session.date = `${session.date}\n${timeStr}`;
@@ -1035,32 +1082,7 @@ export default function App() {
         setAnnualData(emptyAnnual);
         setIsEditing(true);
       } else {
-        const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
-
-        
-        
-
-        // 날짜 문자열 포맷: M/D(요일)\n수업시간
-        const formatSessionDate = (dateStr: string, txTime?: string): string => {
-          const normDateStr = normalizeDateStr(dateStr);
-          const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-          if (match) {
-            const month = parseInt(match[2]);
-            const day = parseInt(match[3]);
-            const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
-            const base = `${month}/${day}(${dayName})`;
-            
-            // studentInfos 상태에서 현재 학생의 정보를 찾음
-            const currentStudentInfo = studentInfos.find(info => info.name === student.name);
-            const time = getSessionTime(currentStudentInfo, normDateStr, txTime || "");
-            
-            if (time && time !== '정보 없음' && time !== '') {
-              return `${base}\n${time}`;
-            }
-            return base;
-          }
-          return normDateStr;
-        };
+        // formatSessionDate 는 컴포넌트 레벨에서 공유 (student.name 전달)
 
         // 해당 월 결제 기록 필터링
         const monthlyRecords = allPaymentRecords
@@ -1084,14 +1106,14 @@ export default function App() {
           therapyPeriod: `${selectedYear}.3.~`,
           sessions: monthlyRecords.length > 0
             ? monthlyRecords.map(r => ({
-                date: formatSessionDate(r.transactionDate, r.transactionTime),
+                date: formatSessionDate(r.transactionDate, r.transactionTime, student.name),
                 content: '',
                 reaction: '',
                 consultation: ''
               }))
             : filteredDates.length > 0
               ? filteredDates.map(date => ({
-                  date: formatSessionDate(date, ""),
+                  date: formatSessionDate(date, '', student.name),
                   content: '',
                   reaction: '',
                   consultation: ''
