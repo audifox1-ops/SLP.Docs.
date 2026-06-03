@@ -8,6 +8,7 @@ import { generateAnnualPlan, generateMonthlyJournal } from './services/aiService
 import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
 import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
+import { PreviewModal } from './components/PreviewModal';
 import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
@@ -52,6 +53,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'docs' | 'students'>('docs');
   const [journalTone, setJournalTone] = useState<JournalTone>('expert');
   const [isEditing, setIsEditing] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
@@ -1918,6 +1920,20 @@ export default function App() {
                           ))}
                         </select>
                       </div>
+
+                      <button
+                        className={`flex items-center gap-2 px-4 py-2 rounded font-bold transition-all ${
+                          isEditing 
+                            ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                            : 'bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg active:scale-95'
+                        }`}
+                        onClick={() => setIsPreviewOpen(true)}
+                        disabled={isEditing}
+                        title={isEditing ? '저장 후 미리보기가 가능합니다.' : ''}
+                      >
+                        <Printer size={16} />
+                        미리보기 및 출력
+                      </button>
                       
                       <button 
                         onClick={handleDownloadRequest}
@@ -1925,14 +1941,6 @@ export default function App() {
                       >
                         <Download className="w-4 h-4" />
                         워드 다운로드
-                      </button>
-
-                      <button 
-                        onClick={handlePrintRequest}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary-dark transition-all shadow-lg shadow-primary/20"
-                      >
-                        <Printer className="w-4 h-4" />
-                        인쇄하기
                       </button>
 
                       <button 
@@ -1974,9 +1982,6 @@ export default function App() {
                         <button 
                           onClick={() => {
                             setActiveTab('monthly');
-                            // Because of the auto-generation useEffect listening to activeTab === 'monthly',
-                            // this will automatically trigger handleGenerateDraft if it's empty!
-                            // But if they want to explicitly generate right now, we can call it:
                             if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
                           }}
                           className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
@@ -2080,8 +2085,19 @@ export default function App() {
         actionType={exportAction}
       />
 
+      <PreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        activeTab={activeTab}
+        student={selectedStudent}
+        annualData={annualData}
+        monthlyData={monthlyData}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+      />
+
       {/* [CRITICAL] Direct Print Container - Only visible during window.print() */}
-      {selectedStudent && (
+      {selectedStudent && !isPreviewOpen && (
         <div className="print-only hidden fixed inset-0 z-[9999] bg-white overflow-visible">
           <div className="export-print-container">
             {exportIncludeAnnual && annualData && (
