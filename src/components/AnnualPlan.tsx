@@ -36,9 +36,9 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
               <table className="border-collapse border border-black text-[0.65rem] w-full">
                 <tbody>
                   <tr>
-                    <td rowSpan={2} className="border border-black p-1 text-center bg-slate-50 w-6">결<br/>재</td>
-                    <td className="border border-black p-1 text-center bg-slate-50">기관장</td>
-                    <td className="border border-black p-1 text-center bg-slate-50">치료사</td>
+                    <td rowSpan={2} className="border border-black p-1 text-center w-6">결<br/>재</td>
+                    <td className="border border-black p-1 text-center">기관장</td>
+                    <td className="border border-black p-1 text-center">치료사</td>
                   </tr>
                   <tr>
                     <td className="border border-black h-10"></td>
@@ -54,7 +54,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       {/* Basic Info Table */}
       <table className="w-full border-collapse border border-black text-[0.75rem] mb-2">
         <thead>
-          <tr className="bg-slate-100">
+          <tr>
             <th className="border border-black p-1 w-[15%]">학생명</th>
             <th className="border border-black p-1 w-[17%]">생년월일</th>
             <th className="border border-black p-1 w-[22%]">소속 학교<br/>(유치원)</th>
@@ -72,19 +72,19 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
               <table className="w-full h-full border-collapse">
                 <tbody className="text-[0.65rem]">
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50 w-16">치료 기간</td>
+                    <td className="p-1 border-b border-r border-black w-16">치료 기간</td>
                     <td className="p-1 border-b border-black font-bold">{year}.3.~</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50">치료사</td>
+                    <td className="p-1 border-b border-r border-black">치료사</td>
                     <td className="p-1 border-b border-black font-bold">{student.therapistName}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-b border-r border-black bg-slate-50">요일</td>
+                    <td className="p-1 border-b border-r border-black">요일</td>
                     <td className="p-1 border-b border-black font-bold">{student.schedule.day}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-r border-black bg-slate-50">시간</td>
+                    <td className="p-1 border-r border-black">시간</td>
                     <td className="p-1 font-bold">{student.schedule.time}</td>
                   </tr>
                 </tbody>
@@ -96,7 +96,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
 
       {/* 현행 수준 */}
       <div className="mb-2 border border-black">
-        <div className="bg-slate-100 p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">현행 수준 및 특성</div>
+        <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">현행 수준 및 특성</div>
         <div className="p-1.5 px-3 text-[0.75rem] leading-tight min-h-[30px]">
           {isEditing ? (
             <textarea
@@ -116,7 +116,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
 
       {/* 장기 목표 */}
       <div className="mb-2 border border-black">
-        <div className="bg-slate-100 p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">장기 치료 목표</div>
+        <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">장기 치료 목표</div>
         <div className="p-1.5 px-3 text-[0.75rem] leading-tight min-h-[30px]">
           {isEditing ? (
             <textarea
@@ -136,10 +136,10 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
 
       {/* 연간 계획 */}
       <div className="border border-black">
-        <div className="bg-slate-100 p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">연간 치료 계획</div>
+        <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">연간 치료 계획</div>
         <table className="w-full border-collapse text-[0.75rem]">
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th className="border-b border-r border-black p-1 w-10 text-center">월</th>
               <th className="border-b border-r border-black p-1 text-center">단기 목표(월 목표)</th>
               <th className="border-b border-r border-black p-1 text-center">치료 내용</th>
