@@ -48,6 +48,22 @@
         "required": ["studentName", "transactionDate", "amount", "treatmentArea"]
       },
       "description": "Collection of payment records from uploaded files"
+    },
+    "/document_templates/monthly_journal": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "fileName": { "type": "string" },
+          "fileUrl": { "type": "string" },
+          "fileType": { "type": "string" },
+          "fileSize": { "type": "number" },
+          "uploadedAtMs": { "type": "number" },
+          "applyMode": { "type": "string" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["fileName", "fileUrl", "fileType", "fileSize", "uploadedAtMs", "applyMode"]
+      },
+      "description": "Uploaded sample file metadata for monthly journal template changes"
     }
   }
 }

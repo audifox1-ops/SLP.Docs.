@@ -3,12 +3,13 @@ import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpr
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord, JournalTone } from './types';
+import { Student, AnnualPlanData, MonthlyJournalData, StudentInfo, PaymentRecord, JournalTone, MonthlyJournalTemplateSample } from './types';
 import { generateAnnualPlan, generateMonthlyJournal } from './services/aiService';
 import { AnnualPlan } from './components/AnnualPlan';
 import { MonthlyJournal } from './components/MonthlyJournal';
 import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
 import { PreviewModal } from './components/PreviewModal';
+import { MonthlyTemplateModal } from './components/MonthlyTemplateModal';
 import { ScheduleManager } from './components/ScheduleManager';
 import { exportMultiMonthDocs } from './utils/docxExport';
 import { StudentManagement } from './components/StudentManagement';
@@ -125,6 +126,9 @@ export default function App() {
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [monthlyTemplateSample, setMonthlyTemplateSample] = useState<MonthlyJournalTemplateSample | null>(null);
+  const [isTemplateUploading, setIsTemplateUploading] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplates>(() => {
     try {
       const stored = localStorage.getItem('prompt_templates');
@@ -225,11 +229,19 @@ export default function App() {
       error: (err) => console.error('Monthly journal status listener error:', err)
     });
 
+    const unsubMonthlyTemplate = onSnapshot(doc(db, 'document_templates', 'monthly_journal'), {
+      next: (snapshot) => {
+        setMonthlyTemplateSample(snapshot.exists() ? (snapshot.data() as MonthlyJournalTemplateSample) : null);
+      },
+      error: (err) => console.error('Monthly template listener error:', err)
+    });
+
     return () => {
       unsubStudents();
       unsubPayments();
       unsubAnnualDocs();
       unsubMonthlyDocs();
+      unsubMonthlyTemplate();
     };
   }, []);
 
@@ -1442,6 +1454,77 @@ export default function App() {
     }
   };
 
+  const handleUploadMonthlyTemplate = async (file: File) => {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const allowedExtensions = ['doc', 'docx', 'hwp', 'pdf', 'png', 'jpg', 'jpeg'];
+    const maxSize = 20 * 1024 * 1024;
+
+    if (!allowedExtensions.includes(extension)) {
+      setUploadStatus({ type: 'error', message: '월간일지 샘플은 DOC, DOCX, HWP, PDF, 이미지 파일만 업로드할 수 있습니다.' });
+      setTimeout(() => setUploadStatus(null), 5000);
+      return;
+    }
+
+    if (file.size > maxSize) {
+      setUploadStatus({ type: 'error', message: '샘플 파일은 20MB 이하로 업로드해 주세요.' });
+      setTimeout(() => setUploadStatus(null), 5000);
+      return;
+    }
+
+    setIsTemplateUploading(true);
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeName = file.name.replace(/[^a-zA-Z0-9가-힣._ -]/g, '_');
+      const storagePath = `document_templates/monthly_journal/${timestamp}_${safeName}`;
+      const fileUrl = await uploadFile(file, storagePath);
+
+      const templateData: MonthlyJournalTemplateSample = {
+        fileName: file.name,
+        fileUrl,
+        fileType: extension,
+        fileSize: file.size,
+        uploadedAtMs: Date.now(),
+        applyMode: 'sample-reference',
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'document_templates', 'monthly_journal'), templateData);
+      setMonthlyTemplateSample(templateData);
+      setUploadStatus({ type: 'success', message: '월간일지 샘플 양식이 업로드되었습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      console.error('Monthly template upload error:', error);
+      setUploadStatus({ type: 'error', message: getErrorMessage(error, '월간일지 샘플 업로드 중 오류가 발생했습니다.') });
+      setTimeout(() => setUploadStatus(null), 5000);
+    } finally {
+      setIsTemplateUploading(false);
+    }
+  };
+
+  const handleDeleteMonthlyTemplate = async () => {
+    if (!monthlyTemplateSample) return;
+    if (!window.confirm('저장된 월간일지 샘플 양식을 삭제하시겠습니까?')) return;
+
+    setIsTemplateUploading(true);
+    try {
+      try {
+        await deleteFileFromStorage(monthlyTemplateSample.fileUrl);
+      } catch (storageErr) {
+        console.warn('Template storage deletion failed or file not found:', storageErr);
+      }
+      await deleteDoc(doc(db, 'document_templates', 'monthly_journal'));
+      setMonthlyTemplateSample(null);
+      setUploadStatus({ type: 'success', message: '월간일지 샘플 양식이 삭제되었습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+    } catch (error) {
+      console.error('Monthly template delete error:', error);
+      setUploadStatus({ type: 'error', message: getErrorMessage(error, '월간일지 샘플 삭제 중 오류가 발생했습니다.') });
+      setTimeout(() => setUploadStatus(null), 5000);
+    } finally {
+      setIsTemplateUploading(false);
+    }
+  };
+
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
 
@@ -2187,6 +2270,17 @@ export default function App() {
             프롬프트
           </button>
           <button
+            onClick={() => setShowTemplateModal(true)}
+            className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary-light"
+            title="월간일지 샘플 양식"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="hidden xl:inline">양식 샘플</span>
+            {monthlyTemplateSample && (
+              <span className="hidden xl:inline-flex bg-primary-light text-primary text-[10px] font-black px-1.5 py-0.5 rounded-full">저장됨</span>
+            )}
+          </button>
+          <button
             onClick={() => setPrivacyMode(prev => !prev)}
             className={`text-sm font-semibold transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${
               privacyMode ? 'bg-slate-900 text-white' : 'text-text-muted hover:text-primary hover:bg-primary-light'
@@ -2819,6 +2913,37 @@ export default function App() {
                             />
                           ) : activeTab === 'monthly' && monthlyData && monthlyData.sessions ? (
                             <>
+                              {monthlyTemplateSample && (
+                                <div className={`no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${isEditing ? 'max-w-none' : 'max-w-[210mm]'}`}>
+                                  <div className="flex items-start gap-3 min-w-0">
+                                    <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center flex-shrink-0">
+                                      <FileText className="w-5 h-5 text-primary" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-black text-text-main">월간일지 샘플 양식</div>
+                                      <div className="text-xs text-text-muted truncate">
+                                        {monthlyTemplateSample.fileName} · 샘플 참조 방식
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 flex-shrink-0">
+                                    <a
+                                      href={monthlyTemplateSample.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-3 py-2 rounded-xl bg-white border border-border-theme text-xs font-bold text-text-main hover:bg-bg-theme"
+                                    >
+                                      파일 열기
+                                    </a>
+                                    <button
+                                      onClick={() => setShowTemplateModal(true)}
+                                      className="px-3 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-dark"
+                                    >
+                                      교체
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                               {monthlyDateCheck && (
                                 <div className={`no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm overflow-hidden mx-auto ${isEditing ? 'max-w-none' : 'max-w-[210mm]'}`}>
                                   <div className="px-5 py-4 border-b border-border-theme bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
@@ -2927,6 +3052,15 @@ export default function App() {
         monthlyData={monthlyData}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
+      />
+
+      <MonthlyTemplateModal
+        isOpen={showTemplateModal}
+        template={monthlyTemplateSample}
+        isUploading={isTemplateUploading}
+        onClose={() => setShowTemplateModal(false)}
+        onUpload={handleUploadMonthlyTemplate}
+        onDelete={handleDeleteMonthlyTemplate}
       />
 
       {showHistoryModal && (

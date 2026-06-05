@@ -24,6 +24,16 @@
 //   - treatmentArea: string (required)
 //   - createdAt: timestamp (required)
 //
+// Collection: document_templates
+// Document ID: monthly_journal
+// Fields:
+//   - fileName: string
+//   - fileUrl: string
+//   - fileType: string
+//   - fileSize: number
+//   - uploadedAtMs: number
+//   - applyMode: string
+//
 // ===============================================================
 
 rules_version = '2';
@@ -101,6 +111,11 @@ service cloud.firestore {
 
     // Monthly Journals collection
     match /monthly_journals/{journalId} {
+      allow read, write: if true;
+    }
+
+    // Document template sample files and metadata
+    match /document_templates/{templateId} {
       allow read, write: if true;
     }
     

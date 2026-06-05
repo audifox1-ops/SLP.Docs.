@@ -90,4 +90,15 @@ export interface MonthlyJournalData {
   therapyPeriod?: string;
 }
 
+export interface MonthlyJournalTemplateSample {
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  fileSize: number;
+  uploadedAtMs: number;
+  applyMode: 'sample-reference';
+  notes?: string;
+  updatedAt?: any;
+}
+
 export type JournalTone = 'normal' | 'academic' | 'expert';
