@@ -66,7 +66,11 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
   };
 
   const isAutoTemplate = ['hwpx-template', 'docx-template'].includes(template?.applyMode || '');
-  const isPrimaryHwp = template?.fileType === 'hwp' || template?.fileType === 'hwpx';
+  const templateFormatLabel =
+    template?.applyMode === 'hwp-template' ? 'HWP 보관' :
+    template?.applyMode === 'hwpx-template' ? 'HWPX 자동 양식' :
+    template?.applyMode === 'docx-template' ? 'DOCX 자동 양식' :
+    '참조용';
   const normalizedProgress = typeof uploadProgress === 'number'
     ? Math.max(0, Math.min(100, uploadProgress))
     : null;
@@ -174,7 +178,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 <div className="text-xs font-black text-primary mb-1">저장된 샘플</div>
                 <div className="font-black text-text-main truncate">{template.fileName}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()} · {isPrimaryHwp ? 'HWP 기본 양식' : '보조 양식'} · {isAutoTemplate ? '자동 치환 적용' : '참조용'}
+                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()} · {templateFormatLabel} · {isAutoTemplate ? '자동 치환 적용' : '자동 치환 안 됨'}
                 </div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
