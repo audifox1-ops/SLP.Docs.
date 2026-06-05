@@ -58,7 +58,10 @@
           "fileType": { "type": "string" },
           "fileSize": { "type": "number" },
           "uploadedAtMs": { "type": "number" },
-          "applyMode": { "type": "string" },
+          "applyMode": {
+            "type": "string",
+            "description": "docx-template for automatic placeholder replacement, sample-reference for reference-only files"
+          },
           "updatedAt": { "type": "string", "format": "date-time" }
         },
         "required": ["fileName", "fileUrl", "fileType", "fileSize", "uploadedAtMs", "applyMode"]

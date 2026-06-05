@@ -16,6 +16,7 @@ interface Props {
   onExecute: (options: ExportOptions) => void;
   defaultYear: number;
   defaultMonth: number;
+  defaultIncludeAnnual?: boolean;
   actionType: 'print' | 'download' | null;
 }
 
@@ -25,6 +26,7 @@ export const ExportOptionsModal: React.FC<Props> = ({
   onExecute, 
   defaultYear, 
   defaultMonth,
+  defaultIncludeAnnual = true,
   actionType
 }) => {
   const [includeAnnual, setIncludeAnnual] = useState(true);
@@ -39,7 +41,8 @@ export const ExportOptionsModal: React.FC<Props> = ({
     setStartMonth(defaultMonth);
     setEndYear(defaultYear);
     setEndMonth(defaultMonth);
-  }, [isOpen, defaultYear, defaultMonth]);
+    setIncludeAnnual(defaultIncludeAnnual);
+  }, [isOpen, defaultYear, defaultMonth, defaultIncludeAnnual]);
 
   if (!isOpen) return null;
 

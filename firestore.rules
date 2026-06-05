@@ -32,7 +32,7 @@
 //   - fileType: string
 //   - fileSize: number
 //   - uploadedAtMs: number
-//   - applyMode: string
+//   - applyMode: string ("docx-template" for automatic placeholder replacement, otherwise "sample-reference")
 //
 // ===============================================================
 

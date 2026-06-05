@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { AlertCircle, ExternalLink, FileText, Loader2, Trash2, UploadCloud, X } from 'lucide-react';
 import { MonthlyJournalTemplateSample } from '../types';
+import { MONTHLY_TEMPLATE_PLACEHOLDERS } from '../utils/monthlyTemplateExport';
 
 interface Props {
   isOpen: boolean;
@@ -40,6 +41,8 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
     onUpload(file);
   };
 
+  const isDocxTemplate = template?.applyMode === 'docx-template' && template.fileType === 'docx';
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 no-print">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
@@ -50,7 +53,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               <FileText className="w-5 h-5 text-primary" />
               월간일지 샘플 양식
             </h3>
-            <p className="text-sm text-text-muted mt-1">새 양식 샘플 파일을 업로드해 저장합니다.</p>
+            <p className="text-sm text-text-muted mt-1">DOCX 샘플은 표와 제목을 그대로 두고 작성 내용만 자동으로 채웁니다.</p>
           </div>
           <button
             onClick={onClose}
@@ -87,7 +90,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
             <div className="font-black text-text-main">
               {isUploading ? '업로드 중입니다' : '파일을 선택하거나 여기에 놓기'}
             </div>
-            <div className="text-xs text-text-muted mt-2">DOC, DOCX, HWP, PDF, PNG, JPG · 최대 20MB</div>
+            <div className="text-xs text-text-muted mt-2">DOCX 권장 · HWP/PDF/이미지는 참조용 · 최대 20MB</div>
             <input
               ref={inputRef}
               type="file"
@@ -106,7 +109,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 <div className="text-xs font-black text-primary mb-1">저장된 샘플</div>
                 <div className="font-black text-text-main truncate">{template.fileName}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()}
+                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()} · {isDocxTemplate ? '자동 치환 적용' : '참조용'}
                 </div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
@@ -140,7 +143,17 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
           )}
 
           <div className="bg-slate-50 border border-border-theme rounded-2xl p-4 text-sm text-text-muted leading-relaxed">
-            현재 단계에서는 샘플 파일을 안전하게 보관하고 월간일지 화면에서 참조합니다. 업로드한 DOCX/HWP의 셀 위치까지 자동으로 치환하려면 샘플 파일에 맞춘 템플릿 매핑 작업이 추가로 필요합니다.
+            샘플 DOCX 안의 표, 제목, 여백, 셀 병합은 그대로 유지됩니다. 값을 넣을 칸에는 아래 형식의 placeholder를 입력해 주세요.
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {MONTHLY_TEMPLATE_PLACEHOLDERS.filter(name => name !== 'sessions').map(name => (
+                <code key={name} className="px-2 py-1 rounded-lg bg-white border border-border-theme text-[11px] font-bold text-text-main">
+                  {`{{${name}}}`}
+                </code>
+              ))}
+            </div>
+            <div className="mt-3 text-xs">
+              회기 표 행 반복은 한 행 안에 <code>{'{{#sessions}}'}</code>, <code>{'{{date}}'}</code>, <code>{'{{content}}'}</code>, <code>{'{{reaction}}'}</code>, <code>{'{{consultation}}'}</code>, <code>{'{{/sessions}}'}</code>를 배치합니다.
+            </div>
           </div>
         </div>
       </div>

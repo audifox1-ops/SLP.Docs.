@@ -12,6 +12,7 @@ import { PreviewModal } from './components/PreviewModal';
 import { MonthlyTemplateModal } from './components/MonthlyTemplateModal';
 import { ScheduleManager } from './components/ScheduleManager';
 import { exportMultiMonthDocs } from './utils/docxExport';
+import { cacheMonthlyTemplateFile, exportMonthlyJournalFromTemplate } from './utils/monthlyTemplateExport';
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { db, OperationType, handleFirestoreError } from './firebase';
@@ -1478,19 +1479,30 @@ export default function App() {
       const storagePath = `document_templates/monthly_journal/${timestamp}_${safeName}`;
       const fileUrl = await uploadFile(file, storagePath);
 
+      try {
+        if (extension === 'docx') await cacheMonthlyTemplateFile(fileUrl, file);
+      } catch (cacheError) {
+        console.warn('Template browser cache failed:', cacheError);
+      }
+
       const templateData: MonthlyJournalTemplateSample = {
         fileName: file.name,
         fileUrl,
         fileType: extension,
         fileSize: file.size,
         uploadedAtMs: Date.now(),
-        applyMode: 'sample-reference',
+        applyMode: extension === 'docx' ? 'docx-template' : 'sample-reference',
         updatedAt: serverTimestamp()
       };
 
       await setDoc(doc(db, 'document_templates', 'monthly_journal'), templateData);
       setMonthlyTemplateSample(templateData);
-      setUploadStatus({ type: 'success', message: '월간일지 샘플 양식이 업로드되었습니다.' });
+      setUploadStatus({
+        type: 'success',
+        message: extension === 'docx'
+          ? 'DOCX 샘플 양식이 업로드되었습니다. 단일 월간일지 워드 다운로드 시 표와 제목을 유지해 자동 치환합니다.'
+          : '샘플 양식이 참조용으로 업로드되었습니다. 표와 제목 자동 치환은 DOCX 파일에서 지원됩니다.'
+      });
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
       console.error('Monthly template upload error:', error);
@@ -2062,9 +2074,9 @@ export default function App() {
     setExportIncludeAnnual(options.includeAnnual);
 
     try {
-      // 1. Ensure Annual Data exists
+      // 1. Ensure Annual Data exists only when the output actually includes it.
       let currentAnnual = annualData;
-      if (!currentAnnual) {
+      if (options.includeAnnual && !currentAnnual) {
         currentAnnual = await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual);
         setAnnualData(currentAnnual);
       }
@@ -2110,27 +2122,36 @@ export default function App() {
         });
 
         const studentWithFilteredDates = { ...selectedStudent, paymentDates: filteredDates };
-        const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === monthNum)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
+        const monthlyGoal =
+          currentAnnual?.monthlyGoals.find(g => g.month === monthNum)?.goal ||
+          (sy === selectedYear && monthNum === selectedMonth ? monthlyData?.monthlyGoal : '') ||
+          "연간계획서에 목표가 설정되지 않았습니다.";
 
         // [Optimization] Check Firestore first to avoid redundant AI calls
         let mData: MonthlyJournalData | null = null;
         const docId = `${selectedStudent.name}_${yearStr}_${monthNum}`;
-        const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
+        const canUseCurrentMonthlyData = sy === selectedYear && monthNum === selectedMonth && Boolean(monthlyData?.sessions);
 
-        if (monthlyDoc.exists()) {
-          mData = monthlyDoc.data() as MonthlyJournalData;
-          console.log(`[Cache] Using saved journal for ${yearStr}-${monthNum}`);
-        } else if (filteredDates.length > 0) {
-          // No saved data, generate check
-          console.log(`[AI] Generating new journal for ${yearStr}-${monthNum}`);
-          mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal, journalTone, selectedStudent.referenceData, promptTemplates.monthly);
+        if (canUseCurrentMonthlyData) {
+          mData = monthlyData;
+          console.log(`[Current] Using on-screen journal for ${yearStr}-${monthNum}`);
         } else {
-          mData = {
-            currentLevel: "해당 월의 치료 내역이 없습니다.",
-            monthlyGoal: monthlyGoal,
-            sessions: [],
-            result: "내역 없음"
-          };
+          const monthlyDoc = await getDoc(doc(db, 'monthly_journals', docId));
+          if (monthlyDoc.exists()) {
+            mData = monthlyDoc.data() as MonthlyJournalData;
+            console.log(`[Cache] Using saved journal for ${yearStr}-${monthNum}`);
+          } else if (filteredDates.length > 0) {
+            // No saved data, generate check
+            console.log(`[AI] Generating new journal for ${yearStr}-${monthNum}`);
+            mData = await generateMonthlyJournal(studentWithFilteredDates, monthNum, monthlyGoal, journalTone, selectedStudent.referenceData, promptTemplates.monthly);
+          } else {
+            mData = {
+              currentLevel: "해당 월의 치료 내역이 없습니다.",
+              monthlyGoal: monthlyGoal,
+              sessions: [],
+              result: "내역 없음"
+            };
+          }
         }
 
         if (mData && mData.sessions) {
@@ -2164,7 +2185,30 @@ export default function App() {
 
       // 3. Document Output Logic
       if (exportAction === 'download') {
-        await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth);
+        const canUseMonthlyTemplate =
+          monthlyTemplateSample?.applyMode === 'docx-template' &&
+          monthlyTemplateSample.fileType === 'docx' &&
+          multiMonthData.length === 1 &&
+          !options.includeAnnual;
+
+        if (canUseMonthlyTemplate) {
+          await exportMonthlyJournalFromTemplate(
+            monthlyTemplateSample,
+            selectedStudent,
+            multiMonthData[0].data,
+            multiMonthData[0].year,
+            multiMonthData[0].month
+          );
+        } else {
+          if (monthlyTemplateSample?.applyMode === 'docx-template' && monthlyTemplateSample.fileType === 'docx') {
+            setUploadStatus({
+              type: 'error',
+              message: '샘플 DOCX 자동 적용은 연간계획서 미포함, 단일 월간일지 다운로드에서만 적용됩니다. 현재 설정은 기본 워드 양식으로 생성했습니다.'
+            });
+            setTimeout(() => setUploadStatus(null), 5000);
+          }
+          await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth);
+        }
         setExportAction(null);
       }
       // For print, we wait for useEffect to trigger after render
@@ -2922,7 +2966,7 @@ export default function App() {
                                     <div className="min-w-0">
                                       <div className="text-sm font-black text-text-main">월간일지 샘플 양식</div>
                                       <div className="text-xs text-text-muted truncate">
-                                        {monthlyTemplateSample.fileName} · 샘플 참조 방식
+                                        {monthlyTemplateSample.fileName} · {monthlyTemplateSample.applyMode === 'docx-template' ? 'DOCX 자동 적용' : '참조용'}
                                       </div>
                                     </div>
                                   </div>
@@ -3040,6 +3084,7 @@ export default function App() {
         onExecute={executeExport}
         defaultYear={selectedYear}
         defaultMonth={selectedMonth}
+        defaultIncludeAnnual={activeTab === 'annual'}
         actionType={exportAction}
       />
 
