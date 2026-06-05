@@ -2282,6 +2282,37 @@ export default function App() {
     setShowExportModal(true);
   };
 
+  const handleOpenPreview = async () => {
+    if (!selectedStudent) return;
+
+    try {
+      let annualForPreview = annualData ? normalizeAnnualPlanData(annualData, selectedStudent) : null;
+      if (!annualData) {
+        const annualDoc = await getDoc(doc(db, 'annual_plans', selectedStudent.name));
+        if (annualDoc.exists()) {
+          annualForPreview = normalizeAnnualPlanData(annualDoc.data() as AnnualPlanData, selectedStudent);
+          setAnnualData(annualForPreview);
+        }
+      }
+
+      if (!monthlyData) {
+        const monthlyDocId = `${selectedStudent.name}_${selectedYear}_${selectedMonth}`;
+        const monthlyDoc = await getDoc(doc(db, 'monthly_journals', monthlyDocId));
+        if (monthlyDoc.exists()) {
+          const loadedMonthly = monthlyDoc.data() as MonthlyJournalData;
+          loadedMonthly.therapyPeriod = loadedMonthly.therapyPeriod || getTherapyPeriodForMonthly(annualForPreview);
+          setMonthlyData(loadedMonthly);
+        }
+      }
+    } catch (error) {
+      console.error('Preview companion document load error:', error);
+      setUploadStatus({ type: 'error', message: '통합 미리보기에 필요한 저장 문서를 불러오는 중 오류가 발생했습니다.' });
+      setTimeout(() => setUploadStatus(null), 4000);
+    } finally {
+      setIsPreviewOpen(true);
+    }
+  };
+
   const executeExport = async (options: ExportOptions) => {
     if (!selectedStudent) return;
 
@@ -3031,7 +3062,7 @@ export default function App() {
                             ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                             : 'bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg active:scale-95'
                         }`}
-                        onClick={() => setIsPreviewOpen(true)}
+                        onClick={handleOpenPreview}
                         disabled={isEditing}
                         title={isEditing ? '저장 후 미리보기가 가능합니다.' : ''}
                       >
