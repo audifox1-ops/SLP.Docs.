@@ -51,3 +51,73 @@
   - Added non-printing monthly date check panel above the monthly journal.
 - `working.md`
   - Added resumable work log.
+## 2026-06-05T16:09:31Z 2026-06-06-slpdocs-autoresearch-1
+
+Status: running
+Summary: Started karpathy-autoresearch source-folder cycle for SLP.Docs current repo
+Metrics:
+- lock_acquired: 1.0
+Verifiers:
+- project_probe detected node stack with npm run lint and npm run build
+Next: Run baseline lint/build, inspect app for a small verifiable improvement candidate
+
+## 2026-06-05T16:13:55Z 2026-06-06-slpdocs-autoresearch-1
+
+Status: completed
+Summary: Adopted Vite manualChunks vendor splitting to remove production build chunk warning
+Decision: adopt
+Metrics:
+- baseline_largest_js_chunk_kb: 2080.9
+- baseline_vite_chunk_warning_count: 1.0
+- largest_js_chunk_kb: 452.16
+- vite_chunk_warning_count: 0.0
+Changed:
+- AUTORESEARCH.md
+- 12-research/bundle-chunking-2026-06-06.md
+- vite.config.ts
+- working.md
+- .autoresearch/experiments.jsonl
+Verifiers:
+- npm run lint passed before and after candidate
+- npm run build passed; largest JS chunk 452.16 kB; no Vite chunk-size warning
+- ab_gate largest_js_chunk_kb 2080.90 -> 452.16 adopted
+- ab_gate vite_chunk_warning_count 1 -> 0 adopted
+- npm audit --omit=dev --audit-level=moderate still reports 8 existing vulnerabilities, including xlsx with no fix available
+Next: Next cycle should address dependency security: apply safe npm audit fix without removing devDependencies, then evaluate xlsx replacement or constrained upload parsing
+## 2026-06-05T16:16:46Z 2026-06-06-slpdocs-security-audit-fix
+
+Status: running
+Summary: Started dependency security cycle to apply safe npm audit fixes while preserving prior chunking changes
+Metrics:
+- baseline_audit_high: 2.0
+- baseline_audit_vulnerabilities: 8.0
+- lock_acquired: 1.0
+Verifiers:
+- npm audit --omit=dev --audit-level=moderate failed with 8 vulnerabilities; xlsx has no fix available
+Next: Run npm audit fix, verify package/package-lock diff, then rerun lint/build/audit
+
+## 2026-06-05T16:19:36Z 2026-06-06-slpdocs-security-audit-fix
+
+Status: completed
+Summary: Adopted safe npm audit lockfile fixes and constrained payment file parsing for residual xlsx risk
+Decision: adopt
+Metrics:
+- audit_moderate: 0.0
+- audit_vulnerabilities: 1.0
+- baseline_audit_moderate: 6.0
+- baseline_audit_vulnerabilities: 8.0
+- payment_upload_guard_count: 4.0
+- residual_audit_high: 1.0
+Changed:
+- package-lock.json
+- src/App.tsx
+- 12-research/dependency-security-2026-06-06.md
+- working.md
+- .autoresearch/experiments.jsonl
+Verifiers:
+- npm run lint passed
+- npm run build passed; no Vite chunk-size warning
+- npm audit --omit=dev --audit-level=moderate now reports only xlsx high with no fix available
+- ab_gate npm_audit_vulnerability_count 8 -> 1 adopted
+- ab_gate npm_audit_moderate_count 6 -> 0 adopted
+Next: Full xlsx remediation remains: replace npm xlsx or adopt a maintained patched SheetJS distribution while preserving XLS/XLSX upload behavior

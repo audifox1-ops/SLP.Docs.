@@ -3,12 +3,51 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+const vendorChunkGroups: [string, string[]][] = [
+  ['react-vendor', ['react', 'react-dom', 'scheduler']],
+  ['firebase-vendor', ['firebase', '@firebase']],
+  ['docx-vendor', ['docx']],
+  ['template-vendor', ['docxtemplater', 'pizzip', 'file-saver']],
+  ['hwpx-vendor', ['@ssabrojs/hwpxjs', '@xmldom/xmldom']],
+  ['pdf-vendor', ['pdfjs-dist']],
+  ['spreadsheet-vendor', ['xlsx', 'papaparse']],
+  ['ui-vendor', ['lucide-react', 'motion']],
+  ['ai-vendor', ['@google/genai']],
+];
+
+const matchesPackage = (id: string, packageName: string) => {
+  const normalized = id.split(path.sep).join('/');
+  return (
+    normalized.includes(`/node_modules/${packageName}/`) ||
+    normalized.endsWith(`/node_modules/${packageName}`)
+  );
+};
+
+const getVendorChunk = (id: string) => {
+  if (!id.includes('node_modules')) return undefined;
+
+  for (const [chunkName, packages] of vendorChunkGroups) {
+    if (packages.some(packageName => matchesPackage(id, packageName))) {
+      return chunkName;
+    }
+  }
+
+  return 'vendor';
+};
+
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: getVendorChunk,
+        },
       },
     },
     server: {

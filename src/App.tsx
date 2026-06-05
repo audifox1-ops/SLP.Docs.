@@ -153,6 +153,15 @@ const createDefaultPromptTemplates = (): PromptTemplates => ({
   monthly: '치료 내용과 아동 반응은 회기별로 겹치지 않게 작성하고, 공식 문서에 맞는 간결한 종결어미를 사용한다.'
 });
 
+const PAYMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const PAYMENT_UPLOAD_MAX_ROWS = 10000;
+const PAYMENT_UPLOAD_MAX_COLUMNS = 80;
+const BLOCKED_PAYMENT_FIELD_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
+const isSafePaymentFieldName = (field: string) => (
+  !BLOCKED_PAYMENT_FIELD_NAMES.has(field.trim().toLowerCase())
+);
+
 export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -590,18 +599,37 @@ export default function App() {
   };
 
     const processFile = (file: File) => {
-      const reader = new FileReader();
       const extension = file.name.split('.').pop()?.toLowerCase();
+
+      if (file.size > PAYMENT_UPLOAD_MAX_BYTES) {
+        setUploadStatus({ type: 'error', message: '결제 내역 파일은 10MB 이하로 업로드해 주세요.' });
+        setTimeout(() => setUploadStatus(null), 5000);
+        return;
+      }
+
+      const reader = new FileReader();
 
       const normalizeData = (data: any[]) => {
         return data.map(row => {
-          const normalized: any = {};
+          const normalized: any = Object.create(null);
           Object.keys(row).forEach(key => {
             const trimmedKey = key.trim();
+            if (!isSafePaymentFieldName(trimmedKey)) return;
             normalized[trimmedKey] = typeof row[key] === 'string' ? row[key].trim() : row[key];
           });
           return normalized;
         });
+      };
+
+      const validateUploadRows = (rows: any[][]) => {
+        if (rows.length > PAYMENT_UPLOAD_MAX_ROWS) {
+          return `결제 내역은 최대 ${PAYMENT_UPLOAD_MAX_ROWS.toLocaleString()}행까지만 업로드할 수 있습니다.`;
+        }
+        const hasTooManyColumns = rows.some(row => Array.isArray(row) && row.length > PAYMENT_UPLOAD_MAX_COLUMNS);
+        if (hasTooManyColumns) {
+          return `결제 내역은 최대 ${PAYMENT_UPLOAD_MAX_COLUMNS}개 컬럼까지만 업로드할 수 있습니다.`;
+        }
+        return '';
       };
 
       const findHeaderAndParse = (rows: any[][]) => {
@@ -626,9 +654,9 @@ export default function App() {
         const dataRows = rows.slice(headerRowIndex + 1);
 
         return dataRows.filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== '')).map(row => {
-          const obj: any = {};
+          const obj: any = Object.create(null);
           headers.forEach((header, idx) => {
-            if (header) obj[header] = row[idx];
+            if (header && isSafePaymentFieldName(header)) obj[header] = row[idx];
           });
           return obj;
         });
@@ -657,7 +685,15 @@ export default function App() {
           header: false,
           skipEmptyLines: true,
           complete: async (results) => {
-            const parsedData = findHeaderAndParse(results.data as any[][]);
+            const rows = results.data as any[][];
+            const rowValidationMessage = validateUploadRows(rows);
+            if (rowValidationMessage) {
+              setUploadStatus({ type: 'error', message: rowValidationMessage });
+              setTimeout(() => setUploadStatus(null), 5000);
+              return;
+            }
+
+            const parsedData = findHeaderAndParse(rows);
             if (!parsedData) {
               setUploadStatus({ type: 'error', message: '필수 컬럼(학생이름, 거래일자)을 찾을 수 없습니다. 파일 형식을 확인해 주세요.' });
               setTimeout(() => setUploadStatus(null), 5000);
@@ -697,6 +733,12 @@ export default function App() {
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }) as any[][];
+            const rowValidationMessage = validateUploadRows(rows);
+            if (rowValidationMessage) {
+              setUploadStatus({ type: 'error', message: rowValidationMessage });
+              setTimeout(() => setUploadStatus(null), 5000);
+              return;
+            }
 
             const parsedData = findHeaderAndParse(rows);
             if (!parsedData) {
