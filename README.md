@@ -19,6 +19,10 @@ View your app in AI Studio: https://ai.studio/apps/f6c3d59c-c8ab-4ba0-973b-32245
 3. Run the app:
    `npm run dev`
 
+## Vercel AI API
+
+Production AI calls use Vercel serverless functions at `/api/ai/status` and `/api/ai/generate`. Set `GEMINI_API_KEY` in the Vercel project environment variables for production; local `.env` values are not available to Vercel unless they are added there.
+
 ## Monthly Template Uploads
 
 Combined annual/monthly, annual-only, and monthly-only sample templates are stored in Firestore chunks under `document_templates/{templateId}/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
