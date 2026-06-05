@@ -14,7 +14,7 @@ import { ScheduleManager } from './components/ScheduleManager';
 import { exportMultiMonthDocs } from './utils/docxExport';
 import { cacheMonthlyTemplateFile, exportMonthlyJournalFromTemplate } from './utils/monthlyTemplateExport';
 import { StudentManagement } from './components/StudentManagement';
-import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
+import { uploadFile, uploadFileWithProgress, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import {
   collection,
@@ -130,6 +130,7 @@ export default function App() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [monthlyTemplateSample, setMonthlyTemplateSample] = useState<MonthlyJournalTemplateSample | null>(null);
   const [isTemplateUploading, setIsTemplateUploading] = useState(false);
+  const [templateUploadProgress, setTemplateUploadProgress] = useState<number | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplates>(() => {
     try {
       const stored = localStorage.getItem('prompt_templates');
@@ -1457,11 +1458,11 @@ export default function App() {
 
   const handleUploadMonthlyTemplate = async (file: File) => {
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
-    const allowedExtensions = ['doc', 'docx', 'hwp', 'pdf', 'png', 'jpg', 'jpeg'];
+    const allowedExtensions = ['hwp', 'hwpx', 'docx', 'doc', 'pdf', 'png', 'jpg', 'jpeg'];
     const maxSize = 20 * 1024 * 1024;
 
     if (!allowedExtensions.includes(extension)) {
-      setUploadStatus({ type: 'error', message: '월간일지 샘플은 DOC, DOCX, HWP, PDF, 이미지 파일만 업로드할 수 있습니다.' });
+      setUploadStatus({ type: 'error', message: '월간일지 샘플은 HWP, HWPX, DOCX, PDF, 이미지 파일만 업로드할 수 있습니다.' });
       setTimeout(() => setUploadStatus(null), 5000);
       return;
     }
@@ -1473,17 +1474,24 @@ export default function App() {
     }
 
     setIsTemplateUploading(true);
+    setTemplateUploadProgress(0);
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const safeName = file.name.replace(/[^a-zA-Z0-9가-힣._ -]/g, '_');
       const storagePath = `document_templates/monthly_journal/${timestamp}_${safeName}`;
-      const fileUrl = await uploadFile(file, storagePath);
+      const fileUrl = await uploadFileWithProgress(file, storagePath, setTemplateUploadProgress);
 
-      try {
-        if (extension === 'docx') await cacheMonthlyTemplateFile(fileUrl, file);
-      } catch (cacheError) {
-        console.warn('Template browser cache failed:', cacheError);
+      if (['hwp', 'hwpx', 'docx'].includes(extension)) {
+        void cacheMonthlyTemplateFile(fileUrl, file).catch((cacheError) => {
+          console.warn('Template browser cache failed:', cacheError);
+        });
       }
+
+      const applyMode: MonthlyJournalTemplateSample['applyMode'] =
+        extension === 'hwp' ? 'hwp-template' :
+        extension === 'hwpx' ? 'hwpx-template' :
+        extension === 'docx' ? 'docx-template' :
+        'sample-reference';
 
       const templateData: MonthlyJournalTemplateSample = {
         fileName: file.name,
@@ -1491,7 +1499,7 @@ export default function App() {
         fileType: extension,
         fileSize: file.size,
         uploadedAtMs: Date.now(),
-        applyMode: extension === 'docx' ? 'docx-template' : 'sample-reference',
+        applyMode,
         updatedAt: serverTimestamp()
       };
 
@@ -1499,9 +1507,13 @@ export default function App() {
       setMonthlyTemplateSample(templateData);
       setUploadStatus({
         type: 'success',
-        message: extension === 'docx'
-          ? 'DOCX 샘플 양식이 업로드되었습니다. 단일 월간일지 워드 다운로드 시 표와 제목을 유지해 자동 치환합니다.'
-          : '샘플 양식이 참조용으로 업로드되었습니다. 표와 제목 자동 치환은 DOCX 파일에서 지원됩니다.'
+        message: applyMode === 'hwpx-template'
+          ? 'HWPX 샘플 양식이 업로드되었습니다. 단일 월간일지 다운로드 시 표와 제목을 유지해 자동 치환합니다.'
+          : applyMode === 'hwp-template'
+            ? 'HWP 샘플 양식이 기본 양식으로 업로드되었습니다. 자동 치환이 필요하면 한글에서 HWPX로 저장한 샘플을 업로드해 주세요.'
+            : applyMode === 'docx-template'
+              ? 'DOCX 샘플 양식이 보조 자동 치환 양식으로 업로드되었습니다.'
+              : '샘플 양식이 참조용으로 업로드되었습니다. 자동 치환은 HWPX 또는 DOCX 파일에서 지원됩니다.'
       });
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
@@ -1510,6 +1522,7 @@ export default function App() {
       setTimeout(() => setUploadStatus(null), 5000);
     } finally {
       setIsTemplateUploading(false);
+      setTemplateUploadProgress(null);
     }
   };
 
@@ -2186,8 +2199,7 @@ export default function App() {
       // 3. Document Output Logic
       if (exportAction === 'download') {
         const canUseMonthlyTemplate =
-          monthlyTemplateSample?.applyMode === 'docx-template' &&
-          monthlyTemplateSample.fileType === 'docx' &&
+          (monthlyTemplateSample?.applyMode === 'hwpx-template' || monthlyTemplateSample?.applyMode === 'docx-template') &&
           multiMonthData.length === 1 &&
           !options.includeAnnual;
 
@@ -2200,10 +2212,16 @@ export default function App() {
             multiMonthData[0].month
           );
         } else {
-          if (monthlyTemplateSample?.applyMode === 'docx-template' && monthlyTemplateSample.fileType === 'docx') {
+          if (monthlyTemplateSample?.applyMode === 'hwp-template') {
             setUploadStatus({
               type: 'error',
-              message: '샘플 DOCX 자동 적용은 연간계획서 미포함, 단일 월간일지 다운로드에서만 적용됩니다. 현재 설정은 기본 워드 양식으로 생성했습니다.'
+              message: 'HWP 원본은 기본 샘플로 보관됩니다. 표와 제목을 유지한 자동 치환은 HWPX 샘플에서 적용됩니다.'
+            });
+            setTimeout(() => setUploadStatus(null), 5000);
+          } else if (monthlyTemplateSample?.applyMode === 'hwpx-template' || monthlyTemplateSample?.applyMode === 'docx-template') {
+            setUploadStatus({
+              type: 'error',
+              message: '샘플 양식 자동 적용은 연간계획서 미포함, 단일 월간일지 다운로드에서만 적용됩니다. 현재 설정은 기본 워드 양식으로 생성했습니다.'
             });
             setTimeout(() => setUploadStatus(null), 5000);
           }
@@ -2966,7 +2984,15 @@ export default function App() {
                                     <div className="min-w-0">
                                       <div className="text-sm font-black text-text-main">월간일지 샘플 양식</div>
                                       <div className="text-xs text-text-muted truncate">
-                                        {monthlyTemplateSample.fileName} · {monthlyTemplateSample.applyMode === 'docx-template' ? 'DOCX 자동 적용' : '참조용'}
+                                        {monthlyTemplateSample.fileName} · {
+                                          monthlyTemplateSample.applyMode === 'hwpx-template'
+                                            ? 'HWPX 자동 적용'
+                                            : monthlyTemplateSample.applyMode === 'hwp-template'
+                                              ? 'HWP 기본 양식'
+                                              : monthlyTemplateSample.applyMode === 'docx-template'
+                                                ? 'DOCX 보조 자동 적용'
+                                                : '참조용'
+                                        }
                                       </div>
                                     </div>
                                   </div>
@@ -3103,6 +3129,7 @@ export default function App() {
         isOpen={showTemplateModal}
         template={monthlyTemplateSample}
         isUploading={isTemplateUploading}
+        uploadProgress={templateUploadProgress}
         onClose={() => setShowTemplateModal(false)}
         onUpload={handleUploadMonthlyTemplate}
         onDelete={handleDeleteMonthlyTemplate}

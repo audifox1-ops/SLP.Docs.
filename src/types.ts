@@ -96,7 +96,7 @@ export interface MonthlyJournalTemplateSample {
   fileType: string;
   fileSize: number;
   uploadedAtMs: number;
-  applyMode: 'sample-reference' | 'docx-template';
+  applyMode: 'sample-reference' | 'hwp-template' | 'hwpx-template' | 'docx-template';
   notes?: string;
   updatedAt?: any;
 }

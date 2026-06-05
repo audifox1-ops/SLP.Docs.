@@ -32,7 +32,7 @@
 //   - fileType: string
 //   - fileSize: number
 //   - uploadedAtMs: number
-//   - applyMode: string ("docx-template" for automatic placeholder replacement, otherwise "sample-reference")
+//   - applyMode: string ("hwp-template" for primary HWP samples, "hwpx-template" or "docx-template" for automatic replacement)
 //
 // ===============================================================
 

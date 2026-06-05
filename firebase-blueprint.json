@@ -60,7 +60,7 @@
           "uploadedAtMs": { "type": "number" },
           "applyMode": {
             "type": "string",
-            "description": "docx-template for automatic placeholder replacement, sample-reference for reference-only files"
+            "description": "hwp-template for primary HWP samples, hwpx-template/docx-template for automatic placeholder replacement, sample-reference for reference-only files"
           },
           "updatedAt": { "type": "string", "format": "date-time" }
         },

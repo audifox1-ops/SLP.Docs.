@@ -1,12 +1,13 @@
 import React, { useRef } from 'react';
 import { AlertCircle, ExternalLink, FileText, Loader2, Trash2, UploadCloud, X } from 'lucide-react';
 import { MonthlyJournalTemplateSample } from '../types';
-import { MONTHLY_TEMPLATE_PLACEHOLDERS } from '../utils/monthlyTemplateExport';
+import { MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES, MONTHLY_TEMPLATE_PLACEHOLDERS } from '../utils/monthlyTemplateExport';
 
 interface Props {
   isOpen: boolean;
   template: MonthlyJournalTemplateSample | null;
   isUploading: boolean;
+  uploadProgress?: number | null;
   onClose: () => void;
   onUpload: (file: File) => void;
   onDelete: () => void;
@@ -28,6 +29,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
   isOpen,
   template,
   isUploading,
+  uploadProgress,
   onClose,
   onUpload,
   onDelete,
@@ -41,7 +43,11 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
     onUpload(file);
   };
 
-  const isDocxTemplate = template?.applyMode === 'docx-template' && template.fileType === 'docx';
+  const isAutoTemplate = ['hwpx-template', 'docx-template'].includes(template?.applyMode || '');
+  const isPrimaryHwp = template?.fileType === 'hwp' || template?.fileType === 'hwpx';
+  const normalizedProgress = typeof uploadProgress === 'number'
+    ? Math.max(0, Math.min(100, uploadProgress))
+    : null;
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 no-print">
@@ -53,7 +59,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               <FileText className="w-5 h-5 text-primary" />
               월간일지 샘플 양식
             </h3>
-            <p className="text-sm text-text-muted mt-1">DOCX 샘플은 표와 제목을 그대로 두고 작성 내용만 자동으로 채웁니다.</p>
+            <p className="text-sm text-text-muted mt-1">HWP/HWPX 샘플을 기본 양식으로 사용합니다.</p>
           </div>
           <button
             onClick={onClose}
@@ -69,7 +75,9 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
             className={`border-2 border-dashed rounded-2xl px-5 py-8 text-center transition-colors ${
               isUploading ? 'border-slate-200 bg-slate-50' : 'border-primary/30 bg-primary-light/30 hover:border-primary'
             }`}
-            onClick={() => inputRef.current?.click()}
+            onClick={() => {
+              if (!isUploading) inputRef.current?.click();
+            }}
             onDragOver={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -88,13 +96,28 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               )}
             </div>
             <div className="font-black text-text-main">
-              {isUploading ? '업로드 중입니다' : '파일을 선택하거나 여기에 놓기'}
+              {isUploading
+                ? normalizedProgress !== null ? `업로드 중입니다 (${normalizedProgress}%)` : '업로드 중입니다'
+                : '파일을 선택하거나 여기에 놓기'}
             </div>
-            <div className="text-xs text-text-muted mt-2">DOCX 권장 · HWP/PDF/이미지는 참조용 · 최대 20MB</div>
+            <div className="text-xs text-text-muted mt-2">HWP/HWPX 우선 · HWPX는 자동 치환 가능 · 최대 20MB</div>
+            {isUploading && normalizedProgress !== null && (
+              <div className="mt-5 max-w-sm mx-auto">
+                <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-200"
+                    style={{ width: `${normalizedProgress}%` }}
+                  />
+                </div>
+                <div className="mt-2 text-[11px] font-bold text-text-muted">
+                  파일 전송이 끝나면 저장 정보만 빠르게 반영됩니다.
+                </div>
+              </div>
+            )}
             <input
               ref={inputRef}
               type="file"
-              accept=".doc,.docx,.hwp,.pdf,.png,.jpg,.jpeg"
+              accept=".hwp,.hwpx,.docx,.doc,.pdf,.png,.jpg,.jpeg"
               className="hidden"
               onChange={(event) => {
                 handleFile(event.target.files?.[0]);
@@ -109,7 +132,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 <div className="text-xs font-black text-primary mb-1">저장된 샘플</div>
                 <div className="font-black text-text-main truncate">{template.fileName}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()} · {isDocxTemplate ? '자동 치환 적용' : '참조용'}
+                  {template.fileType.toUpperCase()} · {formatBytes(template.fileSize)} · {new Date(template.uploadedAtMs).toLocaleString()} · {isPrimaryHwp ? 'HWP 기본 양식' : '보조 양식'} · {isAutoTemplate ? '자동 치환 적용' : '참조용'}
                 </div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
@@ -143,7 +166,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
           )}
 
           <div className="bg-slate-50 border border-border-theme rounded-2xl p-4 text-sm text-text-muted leading-relaxed">
-            샘플 DOCX 안의 표, 제목, 여백, 셀 병합은 그대로 유지됩니다. 값을 넣을 칸에는 아래 형식의 placeholder를 입력해 주세요.
+            HWP 양식이 주 형식입니다. 표와 제목까지 자동으로 유지해 치환하려면 한글에서 샘플을 HWPX로 저장한 뒤 업로드해 주세요. 값을 넣을 칸에는 아래 형식의 placeholder를 입력합니다.
             <div className="flex flex-wrap gap-1.5 mt-3">
               {MONTHLY_TEMPLATE_PLACEHOLDERS.filter(name => name !== 'sessions').map(name => (
                 <code key={name} className="px-2 py-1 rounded-lg bg-white border border-border-theme text-[11px] font-bold text-text-main">
@@ -152,8 +175,12 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               ))}
             </div>
             <div className="mt-3 text-xs">
-              회기 표 행 반복은 한 행 안에 <code>{'{{#sessions}}'}</code>, <code>{'{{date}}'}</code>, <code>{'{{content}}'}</code>, <code>{'{{reaction}}'}</code>, <code>{'{{consultation}}'}</code>, <code>{'{{/sessions}}'}</code>를 배치합니다.
+              고정된 회기 표에는 <code>{'{{session1Date}}'}</code>, <code>{'{{session1Content}}'}</code>처럼 회차 번호를 붙여 배치합니다.
+              {MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES.map(name => (
+                <code key={name} className="ml-1">{`{{${name}}}`}</code>
+              ))}
             </div>
+            <div className="mt-2 text-xs">DOCX도 보조 자동 치환 양식으로 사용할 수 있지만, 기본 업로드 기준은 HWP/HWPX입니다.</div>
           </div>
         </div>
       </div>

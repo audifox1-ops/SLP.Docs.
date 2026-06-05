@@ -2,7 +2,9 @@ import { saveAs } from 'file-saver';
 import { MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const TEMPLATE_CACHE_NAME = 'slp-docs-monthly-template-v1';
+const HWPX_MIME = 'application/vnd.hancom.hwpx';
+const TEMPLATE_CACHE_NAME = 'slp-docs-monthly-template-v2';
+const MAX_FIXED_SESSION_PLACEHOLDERS = 12;
 
 export const MONTHLY_TEMPLATE_PLACEHOLDERS = [
   'title',
@@ -25,8 +27,24 @@ export const MONTHLY_TEMPLATE_PLACEHOLDERS = [
   'sessions',
 ] as const;
 
+export const MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES = [
+  'session1Date',
+  'session1Content',
+  'session1Reaction',
+  'session1Consultation',
+] as const;
+
 const sanitizeTemplateValue = (value: string | number | undefined | null) => (
   value === undefined || value === null ? '' : String(value)
+);
+
+const escapeXml = (value: string) => (
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 );
 
 const getCache = async () => {
@@ -75,7 +93,7 @@ export const createMonthlyTemplateData = (
     consultation: sanitizeTemplateValue(session.consultation),
   }));
 
-  return {
+  const data: Record<string, string | typeof sessions> = {
     title: `${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`,
     year: String(selectedYear),
     month: String(selectedMonth),
@@ -97,6 +115,45 @@ export const createMonthlyTemplateData = (
       .map(session => `${session.date}\n치료 내용: ${session.content}\n아동 반응: ${session.reaction}\n비고: ${session.consultation}`)
       .join('\n\n'),
   };
+
+  Array.from({ length: MAX_FIXED_SESSION_PLACEHOLDERS }).forEach((_, index) => {
+    const session = sessions[index];
+    const num = index + 1;
+    data[`session${num}Date`] = session?.date || '';
+    data[`session${num}Content`] = session?.content || '';
+    data[`session${num}Reaction`] = session?.reaction || '';
+    data[`session${num}Consultation`] = session?.consultation || '';
+  });
+
+  return data;
+};
+
+const renderHwpxTemplate = async (
+  arrayBuffer: ArrayBuffer,
+  data: ReturnType<typeof createMonthlyTemplateData>
+) => {
+  const { default: PizZip } = await import('pizzip');
+  const zip = new PizZip(arrayBuffer);
+  const files = zip.file(/\.(xml|rels)$/i);
+
+  files.forEach(file => {
+    const original = file.asText();
+    let next = original;
+
+    Object.entries(data).forEach(([key, value]) => {
+      if (Array.isArray(value)) return;
+      next = next.split(`{{${key}}}`).join(escapeXml(value));
+    });
+
+    if (next !== original) {
+      zip.file(file.name, next);
+    }
+  });
+
+  return zip.generate({
+    type: 'blob',
+    mimeType: HWPX_MIME,
+  });
 };
 
 export const exportMonthlyJournalFromTemplate = async (
@@ -106,11 +163,25 @@ export const exportMonthlyJournalFromTemplate = async (
   selectedYear: number,
   selectedMonth: number
 ) => {
-  if (template.fileType !== 'docx') {
-    throw new Error('표와 제목을 100% 보존하는 자동 치환은 DOCX 샘플 양식에서만 지원됩니다.');
+  if (template.fileType === 'hwp') {
+    throw new Error('HWP 원본(.hwp)은 샘플 양식의 주 형식으로 보관합니다. 자동 내용 치환은 한글에서 HWPX로 저장한 샘플(.hwpx)에서 지원됩니다.');
   }
 
   const arrayBuffer = await fetchTemplateArrayBuffer(template);
+
+  if (template.fileType === 'hwpx') {
+    const blob = await renderHwpxTemplate(
+      arrayBuffer,
+      createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth)
+    );
+    saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_치료일지.hwpx`);
+    return;
+  }
+
+  if (template.fileType !== 'docx') {
+    throw new Error('자동 치환은 HWPX 또는 DOCX 샘플 양식에서 지원됩니다.');
+  }
+
   const [{ default: Docxtemplater }, { default: PizZip }] = await Promise.all([
     import('docxtemplater'),
     import('pizzip'),
