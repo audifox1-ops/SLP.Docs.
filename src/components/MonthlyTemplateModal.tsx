@@ -4,6 +4,8 @@ import { DocumentTemplateKind, DocumentTemplateSample } from '../types';
 import {
   ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES,
   ANNUAL_TEMPLATE_PLACEHOLDERS,
+  COMBINED_FIXED_PLACEHOLDER_EXAMPLES,
+  COMBINED_TEMPLATE_PLACEHOLDERS,
   MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES,
   MONTHLY_TEMPLATE_PLACEHOLDERS
 } from '../utils/monthlyTemplateExport';
@@ -11,6 +13,7 @@ import {
 interface Props {
   isOpen: boolean;
   activeKind: DocumentTemplateKind;
+  combinedTemplate: DocumentTemplateSample | null;
   annualTemplate: DocumentTemplateSample | null;
   monthlyTemplate: DocumentTemplateSample | null;
   isUploading: boolean;
@@ -37,6 +40,7 @@ const formatBytes = (bytes: number) => {
 export const MonthlyTemplateModal: React.FC<Props> = ({
   isOpen,
   activeKind,
+  combinedTemplate,
   annualTemplate,
   monthlyTemplate,
   isUploading,
@@ -51,14 +55,22 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const template = activeKind === 'annual_plan' ? annualTemplate : monthlyTemplate;
-  const label = activeKind === 'annual_plan' ? '연간계획서' : '월간일지';
-  const placeholders = activeKind === 'annual_plan'
-    ? ANNUAL_TEMPLATE_PLACEHOLDERS
-    : MONTHLY_TEMPLATE_PLACEHOLDERS;
-  const fixedPlaceholderExamples = activeKind === 'annual_plan'
-    ? ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES
-    : MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES;
+  const template =
+    activeKind === 'combined_journal' ? combinedTemplate :
+    activeKind === 'annual_plan' ? annualTemplate :
+    monthlyTemplate;
+  const label =
+    activeKind === 'combined_journal' ? '통합 양식' :
+    activeKind === 'annual_plan' ? '연간계획서' :
+    '월간일지';
+  const placeholders =
+    activeKind === 'combined_journal' ? COMBINED_TEMPLATE_PLACEHOLDERS :
+    activeKind === 'annual_plan' ? ANNUAL_TEMPLATE_PLACEHOLDERS :
+    MONTHLY_TEMPLATE_PLACEHOLDERS;
+  const fixedPlaceholderExamples =
+    activeKind === 'combined_journal' ? COMBINED_FIXED_PLACEHOLDER_EXAMPLES :
+    activeKind === 'annual_plan' ? ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES :
+    MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES;
 
   const handleFile = (file?: File) => {
     if (!file || isUploading) return;
@@ -85,7 +97,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               <FileText className="w-5 h-5 text-primary" />
               문서 샘플 양식
             </h3>
-            <p className="text-sm text-text-muted mt-1">연간계획서와 월간일지 양식을 각각 등록합니다.</p>
+            <p className="text-sm text-text-muted mt-1">연간계획서와 월간일지가 함께 있는 샘플 양식을 우선 사용합니다.</p>
           </div>
           <button
             onClick={onClose}
@@ -97,8 +109,9 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
         </div>
 
         <div className="p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
             {([
+              ['combined_journal', '통합 양식'],
               ['annual_plan', '연간계획서'],
               ['monthly_journal', '월간일지'],
             ] as [DocumentTemplateKind, string][]).map(([kind, name]) => (
@@ -205,7 +218,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
               <div>
                 <div className="text-sm font-black text-amber-800">저장된 {label} 샘플이 없습니다.</div>
-                <div className="text-xs text-amber-700 mt-1">HWPX 또는 DOCX 샘플을 올리면 다운로드 문서에 해당 양식이 반영됩니다.</div>
+                <div className="text-xs text-amber-700 mt-1">연간계획서와 월간일지가 함께 들어 있는 HWPX 또는 DOCX 샘플은 통합 양식에 업로드해 주세요.</div>
               </div>
             </div>
           )}
@@ -220,17 +233,26 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
               ))}
             </div>
             <div className="mt-3 text-xs">
-              {activeKind === 'annual_plan'
-                ? '월별 표에는 '
-                : '고정된 회기 표에는 '}
-              <code>{activeKind === 'annual_plan' ? '{{month1Goal}}' : '{{session1Date}}'}</code>
-              {activeKind === 'annual_plan'
-                ? ', '
-                : ', '}
-              <code>{activeKind === 'annual_plan' ? '{{month1Content}}' : '{{session1Content}}'}</code>
-              {activeKind === 'annual_plan'
-                ? '처럼 월 번호를 붙여 배치합니다.'
-                : '처럼 회차 번호를 붙여 배치합니다.'}
+              {activeKind === 'combined_journal'
+                ? '통합 양식에는 '
+                : activeKind === 'annual_plan'
+                  ? '월별 표에는 '
+                  : '고정된 회기 표에는 '}
+              <code>{
+                activeKind === 'combined_journal' ? '{{month1Goal}}' :
+                activeKind === 'annual_plan' ? '{{month1Goal}}' :
+                '{{session1Date}}'
+              }</code>
+              , <code>{
+                activeKind === 'combined_journal' ? '{{session1Content}}' :
+                activeKind === 'annual_plan' ? '{{month1Content}}' :
+                '{{session1Content}}'
+              }</code>
+              {activeKind === 'combined_journal'
+                ? '처럼 연간 월별 목표와 월간 회기 정보를 함께 배치합니다.'
+                : activeKind === 'annual_plan'
+                  ? '처럼 월 번호를 붙여 배치합니다.'
+                  : '처럼 회차 번호를 붙여 배치합니다.'}
               {fixedPlaceholderExamples.map(name => (
                 <code key={name} className="ml-1">{`{{${name}}}`}</code>
               ))}

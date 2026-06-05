@@ -90,7 +90,7 @@ export interface MonthlyJournalData {
   therapyPeriod?: string;
 }
 
-export type DocumentTemplateKind = 'annual_plan' | 'monthly_journal';
+export type DocumentTemplateKind = 'combined_journal' | 'annual_plan' | 'monthly_journal';
 
 export type DocumentTemplateApplyMode = 'sample-reference' | 'hwp-template' | 'hwpx-template' | 'docx-template';
 

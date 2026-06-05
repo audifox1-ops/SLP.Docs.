@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData } from '../types';
 import { AnnualPlan } from './AnnualPlan';
 import { MonthlyJournal } from './MonthlyJournal';
-import { canApplyTemplateAutomatically, exportAnnualPlanFromTemplate, exportMonthlyJournalFromTemplate } from '../utils/monthlyTemplateExport';
+import { canApplyTemplateAutomatically, exportAnnualPlanFromTemplate, exportCombinedJournalFromTemplate, exportMonthlyJournalFromTemplate } from '../utils/monthlyTemplateExport';
 
 interface Props {
   isOpen: boolean;
@@ -11,6 +11,7 @@ interface Props {
   student: Student;
   annualData: AnnualPlanData | null;
   monthlyData: MonthlyJournalData | null;
+  combinedTemplate?: DocumentTemplateSample | null;
   annualTemplate?: DocumentTemplateSample | null;
   monthlyTemplate?: DocumentTemplateSample | null;
   selectedYear: number;
@@ -24,6 +25,7 @@ export const PreviewModal: React.FC<Props> = ({
   student,
   annualData,
   monthlyData,
+  combinedTemplate,
   annualTemplate,
   monthlyTemplate,
   selectedYear,
@@ -56,6 +58,12 @@ export const PreviewModal: React.FC<Props> = ({
   };
 
   const downloadFromTemplateIfAvailable = async () => {
+    const combinedTemplateForExport = combinedTemplate || (!annualTemplate && activeTab === 'monthly' ? monthlyTemplate : null);
+    if (annualData && monthlyData && canApplyTemplateAutomatically(combinedTemplateForExport)) {
+      await exportCombinedJournalFromTemplate(combinedTemplateForExport, student, annualData, monthlyData, selectedYear, selectedMonth);
+      return true;
+    }
+
     if (activeTab === 'annual' && annualData && canApplyTemplateAutomatically(annualTemplate)) {
       await exportAnnualPlanFromTemplate(annualTemplate, student, annualData, selectedYear);
       return true;

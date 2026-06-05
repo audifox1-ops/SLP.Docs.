@@ -13,7 +13,7 @@ import { PreviewModal } from './components/PreviewModal';
 import { MonthlyTemplateModal } from './components/MonthlyTemplateModal';
 import { ScheduleManager } from './components/ScheduleManager';
 import { createAnnualDocxBlob, createMonthlyDocxBlob, exportMultiMonthDocs } from './utils/docxExport';
-import { canApplyTemplateAutomatically, createAnnualPlanTemplateBlob, createMonthlyJournalTemplateBlob } from './utils/monthlyTemplateExport';
+import { canApplyTemplateAutomatically, createAnnualPlanTemplateBlob, createCombinedJournalTemplateBlob, createMonthlyJournalTemplateBlob } from './utils/monthlyTemplateExport';
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
@@ -109,7 +109,9 @@ const getTemplateUploadErrorMessage = (error: unknown) => {
 };
 
 const getDocumentTemplateLabel = (kind: DocumentTemplateKind) => (
-  kind === 'annual_plan' ? '연간계획서' : '월간일지'
+  kind === 'combined_journal' ? '통합 양식' :
+  kind === 'annual_plan' ? '연간계획서' :
+  '월간일지'
 );
 
 const getTemplateBlobMimeType = (fileType: string) => {
@@ -187,7 +189,8 @@ export default function App() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [activeTemplateKind, setActiveTemplateKind] = useState<DocumentTemplateKind>('monthly_journal');
+  const [activeTemplateKind, setActiveTemplateKind] = useState<DocumentTemplateKind>('combined_journal');
+  const [combinedTemplateSample, setCombinedTemplateSample] = useState<DocumentTemplateSample | null>(null);
   const [annualTemplateSample, setAnnualTemplateSample] = useState<DocumentTemplateSample | null>(null);
   const [monthlyTemplateSample, setMonthlyTemplateSample] = useState<MonthlyJournalTemplateSample | null>(null);
   const [isTemplateUploading, setIsTemplateUploading] = useState(false);
@@ -292,6 +295,13 @@ export default function App() {
       error: (err) => console.error('Monthly journal status listener error:', err)
     });
 
+    const unsubCombinedTemplate = onSnapshot(doc(db, 'document_templates', 'combined_journal'), {
+      next: (snapshot) => {
+        setCombinedTemplateSample(snapshot.exists() ? (snapshot.data() as DocumentTemplateSample) : null);
+      },
+      error: (err) => console.error('Combined template listener error:', err)
+    });
+
     const unsubAnnualTemplate = onSnapshot(doc(db, 'document_templates', 'annual_plan'), {
       next: (snapshot) => {
         setAnnualTemplateSample(snapshot.exists() ? (snapshot.data() as DocumentTemplateSample) : null);
@@ -311,6 +321,7 @@ export default function App() {
       unsubPayments();
       unsubAnnualDocs();
       unsubMonthlyDocs();
+      unsubCombinedTemplate();
       unsubAnnualTemplate();
       unsubMonthlyTemplate();
     };
@@ -1530,7 +1541,10 @@ export default function App() {
     const allowedExtensions = ['hwp', 'hwpx', 'docx', 'doc', 'pdf', 'png', 'jpg', 'jpeg'];
     const maxSize = 20 * 1024 * 1024;
     const label = getDocumentTemplateLabel(kind);
-    const currentTemplate = kind === 'annual_plan' ? annualTemplateSample : monthlyTemplateSample;
+    const currentTemplate =
+      kind === 'combined_journal' ? combinedTemplateSample :
+      kind === 'annual_plan' ? annualTemplateSample :
+      monthlyTemplateSample;
 
     if (!allowedExtensions.includes(extension)) {
       setUploadStatus({ type: 'error', message: `${label} 샘플은 HWP, HWPX, DOCX, PDF, 이미지 파일만 업로드할 수 있습니다.` });
@@ -1579,7 +1593,9 @@ export default function App() {
           console.warn('Previous template chunk cleanup failed:', cleanupError);
         });
       }
-      if (kind === 'annual_plan') {
+      if (kind === 'combined_journal') {
+        setCombinedTemplateSample(templateData);
+      } else if (kind === 'annual_plan') {
         setAnnualTemplateSample(templateData);
       } else {
         setMonthlyTemplateSample(templateData);
@@ -1606,7 +1622,10 @@ export default function App() {
   };
 
   const handleDeleteDocumentTemplate = async (kind: DocumentTemplateKind) => {
-    const currentTemplate = kind === 'annual_plan' ? annualTemplateSample : monthlyTemplateSample;
+    const currentTemplate =
+      kind === 'combined_journal' ? combinedTemplateSample :
+      kind === 'annual_plan' ? annualTemplateSample :
+      monthlyTemplateSample;
     if (!currentTemplate) return;
     const label = getDocumentTemplateLabel(kind);
     if (!window.confirm(`저장된 ${label} 샘플 양식을 삭제하시겠습니까?`)) return;
@@ -1623,7 +1642,9 @@ export default function App() {
         console.warn('Template storage deletion failed or file not found:', storageErr);
       }
       await deleteDoc(doc(db, 'document_templates', kind));
-      if (kind === 'annual_plan') {
+      if (kind === 'combined_journal') {
+        setCombinedTemplateSample(null);
+      } else if (kind === 'annual_plan') {
         setAnnualTemplateSample(null);
       } else {
         setMonthlyTemplateSample(null);
@@ -1640,7 +1661,10 @@ export default function App() {
   };
 
   const handleOpenDocumentTemplate = async (kind: DocumentTemplateKind) => {
-    const currentTemplate = kind === 'annual_plan' ? annualTemplateSample : monthlyTemplateSample;
+    const currentTemplate =
+      kind === 'combined_journal' ? combinedTemplateSample :
+      kind === 'annual_plan' ? annualTemplateSample :
+      monthlyTemplateSample;
     if (!currentTemplate) return;
 
     try {
@@ -2311,10 +2335,31 @@ export default function App() {
 
       // 3. Document Output Logic
       if (exportAction === 'download') {
+        const combinedTemplateForExport = combinedTemplateSample || (!annualTemplateSample ? monthlyTemplateSample : null);
+        const canUseCombinedTemplate = options.includeAnnual && currentAnnual && canApplyTemplateAutomatically(combinedTemplateForExport);
         const canUseAnnualTemplate = options.includeAnnual && currentAnnual && canApplyTemplateAutomatically(annualTemplateSample);
         const canUseMonthlyTemplate = canApplyTemplateAutomatically(monthlyTemplateSample);
 
-        if (canUseAnnualTemplate || canUseMonthlyTemplate) {
+        if (canUseCombinedTemplate && combinedTemplateForExport && currentAnnual) {
+          const files: ExportFile[] = [];
+          for (const item of multiMonthData) {
+            const { blob, extension } = await createCombinedJournalTemplateBlob(
+              combinedTemplateForExport,
+              selectedStudent,
+              currentAnnual,
+              item.data,
+              item.year,
+              item.month
+            );
+            files.push({
+              fileName: `${selectedStudent.name}_${item.year}_${item.month}월_샘플양식_연간월간.${extension}`,
+              blob,
+            });
+          }
+          await saveExportFiles(files, `${selectedStudent.name}_통합일지_${startMonth}월-${endMonth}월.zip`);
+          setUploadStatus({ type: 'success', message: '통합 샘플 양식에 연간계획서와 월간일지를 함께 반영해 생성했습니다.' });
+          setTimeout(() => setUploadStatus(null), 3000);
+        } else if (canUseAnnualTemplate || canUseMonthlyTemplate) {
           const files: ExportFile[] = [];
           const notices = new Set<string>();
 
@@ -2374,7 +2419,11 @@ export default function App() {
             setTimeout(() => setUploadStatus(null), 3000);
           }
         } else {
-          if (annualTemplateSample?.applyMode === 'hwp-template' || monthlyTemplateSample?.applyMode === 'hwp-template') {
+          if (
+            combinedTemplateSample?.applyMode === 'hwp-template' ||
+            annualTemplateSample?.applyMode === 'hwp-template' ||
+            monthlyTemplateSample?.applyMode === 'hwp-template'
+          ) {
             setUploadStatus({
               type: 'error',
               message: 'HWP 원본은 자동 치환할 수 없어 기본 워드 양식으로 생성했습니다. 한글에서 HWPX로 저장한 샘플을 업로드하면 양식이 반영됩니다.'
@@ -2489,7 +2538,7 @@ export default function App() {
           </button>
           <button
             onClick={() => {
-              setActiveTemplateKind(activeTab === 'annual' ? 'annual_plan' : 'monthly_journal');
+              setActiveTemplateKind('combined_journal');
               setShowTemplateModal(true);
             }}
             className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary-light"
@@ -2497,7 +2546,7 @@ export default function App() {
           >
             <FileText className="w-4 h-4" />
             <span className="hidden xl:inline">양식 샘플</span>
-            {(annualTemplateSample || monthlyTemplateSample) && (
+            {(combinedTemplateSample || annualTemplateSample || monthlyTemplateSample) && (
               <span className="hidden xl:inline-flex bg-primary-light text-primary text-[10px] font-black px-1.5 py-0.5 rounded-full">저장됨</span>
             )}
           </button>
@@ -3323,6 +3372,7 @@ export default function App() {
         student={displayStudent}
         annualData={annualData}
         monthlyData={monthlyData}
+        combinedTemplate={combinedTemplateSample}
         annualTemplate={annualTemplateSample}
         monthlyTemplate={monthlyTemplateSample}
         selectedYear={selectedYear}
@@ -3332,6 +3382,7 @@ export default function App() {
       <MonthlyTemplateModal
         isOpen={showTemplateModal}
         activeKind={activeTemplateKind}
+        combinedTemplate={combinedTemplateSample}
         annualTemplate={annualTemplateSample}
         monthlyTemplate={monthlyTemplateSample}
         isUploading={isTemplateUploading}

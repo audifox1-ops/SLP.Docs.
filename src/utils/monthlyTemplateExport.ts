@@ -61,6 +61,39 @@ export const ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES = [
   'month1Area',
 ] as const;
 
+export const COMBINED_TEMPLATE_PLACEHOLDERS = [
+  'studentName',
+  'birthDate',
+  'school',
+  'disabilityType',
+  'treatmentArea',
+  'therapistName',
+  'scheduleDay',
+  'scheduleTime',
+  'scheduleFrequency',
+  'annualTitle',
+  'annualYear',
+  'annualCurrentLevelText',
+  'annualLongTermGoalsText',
+  'annualMonthlyGoalsText',
+  'monthlyTitle',
+  'monthlyYear',
+  'monthlyMonth',
+  'monthlyCurrentLevel',
+  'monthlyGoal',
+  'monthlyResult',
+  'sessionsText',
+  'sessions',
+  'monthlyGoals',
+] as const;
+
+export const COMBINED_FIXED_PLACEHOLDER_EXAMPLES = [
+  'month1Goal',
+  'month1Content',
+  'session1Date',
+  'session1Content',
+] as const;
+
 type TemplateData = Record<string, string | Record<string, string>[]>;
 
 const sanitizeTemplateValue = (value: string | number | undefined | null) => (
@@ -210,6 +243,35 @@ export const createAnnualTemplateData = (
   return data;
 };
 
+export const createCombinedTemplateData = (
+  student: Student,
+  annualData: AnnualPlanData,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => {
+  const annualDataMap = createAnnualTemplateData(student, annualData, selectedYear);
+  const monthlyDataMap = createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth);
+
+  return {
+    ...annualDataMap,
+    ...monthlyDataMap,
+    annualTitle: String(annualDataMap.title || ''),
+    annualYear: String(annualDataMap.year || ''),
+    annualCurrentLevelText: String(annualDataMap.currentLevelText || ''),
+    annualLongTermGoalsText: String(annualDataMap.longTermGoalsText || ''),
+    annualMonthlyGoalsText: String(annualDataMap.monthlyGoalsText || ''),
+    annualMonthlyGoals: annualDataMap.monthlyGoals as Record<string, string>[],
+    monthlyTitle: String(monthlyDataMap.title || ''),
+    monthlyYear: String(monthlyDataMap.year || ''),
+    monthlyMonth: String(monthlyDataMap.month || ''),
+    monthlyCurrentLevel: String(monthlyDataMap.currentLevel || ''),
+    monthlyGoal: String(monthlyDataMap.monthlyGoal || ''),
+    monthlyResult: String(monthlyDataMap.result || ''),
+    monthlySessions: monthlyDataMap.sessions as Record<string, string>[],
+  } satisfies TemplateData;
+};
+
 const renderHwpxTemplate = async (
   arrayBuffer: ArrayBuffer,
   data: TemplateData
@@ -308,6 +370,20 @@ export const createMonthlyJournalTemplateBlob = async (
   createTemplateBlob(template, createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth))
 );
 
+export const createCombinedJournalTemplateBlob = async (
+  template: DocumentTemplateSample,
+  student: Student,
+  annualData: AnnualPlanData,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => (
+  createTemplateBlob(
+    template,
+    createCombinedTemplateData(student, annualData, monthlyData, selectedYear, selectedMonth)
+  )
+);
+
 export const exportAnnualPlanFromTemplate = async (
   template: DocumentTemplateSample,
   student: Student,
@@ -334,4 +410,24 @@ export const exportMonthlyJournalFromTemplate = async (
   );
 
   saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_치료일지.${extension}`);
+};
+
+export const exportCombinedJournalFromTemplate = async (
+  template: DocumentTemplateSample,
+  student: Student,
+  annualData: AnnualPlanData,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => {
+  const { blob, extension } = await createCombinedJournalTemplateBlob(
+    template,
+    student,
+    annualData,
+    monthlyData,
+    selectedYear,
+    selectedMonth
+  );
+
+  saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_연간월간.${extension}`);
 };

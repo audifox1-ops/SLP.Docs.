@@ -49,13 +49,13 @@
       },
       "description": "Collection of payment records from uploaded files"
     },
-    "/document_templates/{annual_plan|monthly_journal}": {
+    "/document_templates/{combined_journal|annual_plan|monthly_journal}": {
       "schema": {
         "type": "object",
         "properties": {
           "templateKind": {
             "type": "string",
-            "description": "annual_plan for annual plan templates or monthly_journal for monthly journal templates"
+            "description": "combined_journal for templates that contain both annual and monthly forms, annual_plan for annual-only templates, or monthly_journal for monthly-only templates"
           },
           "fileName": { "type": "string" },
           "fileUrl": { "type": "string" },
@@ -77,7 +77,7 @@
         },
         "required": ["fileName", "fileUrl", "fileType", "fileSize", "uploadedAtMs", "applyMode"]
       },
-      "description": "Uploaded sample file metadata for annual plan and monthly journal template changes"
+      "description": "Uploaded sample file metadata for combined, annual plan, and monthly journal template changes"
     }
   }
 }
