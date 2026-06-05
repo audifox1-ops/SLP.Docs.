@@ -21,7 +21,9 @@ View your app in AI Studio: https://ai.studio/apps/f6c3d59c-c8ab-4ba0-973b-32245
 
 ## Monthly Template Uploads
 
-Monthly journal sample templates are stored in Firestore chunks under `document_templates/monthly_journal/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
+Annual plan and monthly journal sample templates are stored in Firestore chunks under `document_templates/{templateId}/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
+
+Use `annual_plan` for annual plan templates and `monthly_journal` for monthly journal templates. HWPX and DOCX templates are automatically filled during document download when they contain placeholders such as `{{studentName}}`, `{{currentLevelText}}`, `{{month1Goal}}`, `{{monthlyGoal}}`, or `{{session1Content}}`. Binary HWP files are stored for reference only; save the HWP in Hancom as HWPX before uploading if automatic form application is required.
 
 After changing `firestore.rules`, deploy the rules before testing template uploads in production:
 

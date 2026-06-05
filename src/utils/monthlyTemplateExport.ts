@@ -1,11 +1,12 @@
 import { saveAs } from 'file-saver';
-import { MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
+import { AnnualPlanData, DocumentTemplateSample, MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
 import { loadTemplateFileFromChunks } from '../services/templateFileService';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const HWPX_MIME = 'application/vnd.hancom.hwpx';
 const TEMPLATE_CACHE_NAME = 'slp-docs-monthly-template-v2';
 const MAX_FIXED_SESSION_PLACEHOLDERS = 12;
+const MAX_FIXED_ANNUAL_MONTH_PLACEHOLDERS = 12;
 
 export const MONTHLY_TEMPLATE_PLACEHOLDERS = [
   'title',
@@ -34,6 +35,33 @@ export const MONTHLY_FIXED_SESSION_PLACEHOLDER_EXAMPLES = [
   'session1Reaction',
   'session1Consultation',
 ] as const;
+
+export const ANNUAL_TEMPLATE_PLACEHOLDERS = [
+  'title',
+  'year',
+  'studentName',
+  'birthDate',
+  'school',
+  'disabilityType',
+  'treatmentArea',
+  'therapyPeriod',
+  'therapistName',
+  'scheduleDay',
+  'scheduleTime',
+  'scheduleFrequency',
+  'currentLevelText',
+  'longTermGoalsText',
+  'monthlyGoalsText',
+  'monthlyGoals',
+] as const;
+
+export const ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES = [
+  'month1Goal',
+  'month1Content',
+  'month1Area',
+] as const;
+
+type TemplateData = Record<string, string | Record<string, string>[]>;
 
 const sanitizeTemplateValue = (value: string | number | undefined | null) => (
   value === undefined || value === null ? '' : String(value)
@@ -65,9 +93,9 @@ export const cacheMonthlyTemplateFile = async (fileUrl: string, file: File) => {
   );
 };
 
-const fetchTemplateArrayBuffer = async (template: MonthlyJournalTemplateSample) => {
+const fetchTemplateArrayBuffer = async (template: DocumentTemplateSample) => {
   if (template.storageMode === 'firestore-chunks') {
-    return loadTemplateFileFromChunks('monthly_journal', template.chunkUploadId);
+    return loadTemplateFileFromChunks(template.templateKind || 'monthly_journal', template.chunkUploadId);
   }
 
   const cache = await getCache();
@@ -82,6 +110,10 @@ const fetchTemplateArrayBuffer = async (template: MonthlyJournalTemplateSample) 
   if (cache) await cache.put(template.fileUrl, response.clone());
   return response.arrayBuffer();
 };
+
+export const canApplyTemplateAutomatically = (template: DocumentTemplateSample | null | undefined) => (
+  template?.applyMode === 'hwpx-template' || template?.applyMode === 'docx-template'
+);
 
 export const createMonthlyTemplateData = (
   student: Student,
@@ -133,9 +165,54 @@ export const createMonthlyTemplateData = (
   return data;
 };
 
+export const createAnnualTemplateData = (
+  student: Student,
+  annualData: AnnualPlanData,
+  selectedYear: number
+) => {
+  const monthlyGoals = annualData.monthlyGoals.map(goal => ({
+    month: `${goal.month}월`,
+    monthNumber: String(goal.month),
+    goal: sanitizeTemplateValue(goal.goal),
+    content: sanitizeTemplateValue(goal.content),
+    area: sanitizeTemplateValue(goal.area || student.monthlyAreas?.[goal.month] || student.treatmentArea),
+  }));
+
+  const data: TemplateData = {
+    title: `${selectedYear}. 교육청 치료지원(마중물) 대상 연간 계획서`,
+    year: String(selectedYear),
+    studentName: sanitizeTemplateValue(student.name),
+    birthDate: sanitizeTemplateValue(student.birthDate),
+    school: sanitizeTemplateValue(student.school),
+    disabilityType: sanitizeTemplateValue(student.disabilityType),
+    treatmentArea: sanitizeTemplateValue(student.treatmentArea),
+    therapyPeriod: `${selectedYear}.3.~`,
+    therapistName: sanitizeTemplateValue(student.therapistName),
+    scheduleDay: sanitizeTemplateValue(student.schedule.day),
+    scheduleTime: sanitizeTemplateValue(student.schedule.time),
+    scheduleFrequency: sanitizeTemplateValue(student.schedule.frequency),
+    currentLevelText: annualData.currentLevel.map(sanitizeTemplateValue).join('\n'),
+    longTermGoalsText: annualData.longTermGoals.map(sanitizeTemplateValue).join('\n'),
+    monthlyGoals,
+    monthlyGoalsText: monthlyGoals
+      .map(goal => `${goal.month} ${goal.area}\n목표: ${goal.goal}\n내용: ${goal.content}`)
+      .join('\n\n'),
+  };
+
+  Array.from({ length: MAX_FIXED_ANNUAL_MONTH_PLACEHOLDERS }).forEach((_, index) => {
+    const monthNumber = index + 1;
+    const goal = annualData.monthlyGoals.find(item => item.month === monthNumber);
+    data[`month${monthNumber}Goal`] = goal?.goal || '';
+    data[`month${monthNumber}Content`] = goal?.content || '';
+    data[`month${monthNumber}Area`] = goal?.area || student.monthlyAreas?.[monthNumber] || student.treatmentArea || '';
+  });
+
+  return data;
+};
+
 const renderHwpxTemplate = async (
   arrayBuffer: ArrayBuffer,
-  data: ReturnType<typeof createMonthlyTemplateData>
+  data: TemplateData
 ) => {
   const { default: PizZip } = await import('pizzip');
   const zip = new PizZip(arrayBuffer);
@@ -161,32 +238,10 @@ const renderHwpxTemplate = async (
   });
 };
 
-export const exportMonthlyJournalFromTemplate = async (
-  template: MonthlyJournalTemplateSample,
-  student: Student,
-  monthlyData: MonthlyJournalData,
-  selectedYear: number,
-  selectedMonth: number
+const renderDocxTemplate = async (
+  arrayBuffer: ArrayBuffer,
+  data: TemplateData
 ) => {
-  if (template.fileType === 'hwp') {
-    throw new Error('HWP 원본(.hwp)은 샘플 양식의 주 형식으로 보관합니다. 자동 내용 치환은 한글에서 HWPX로 저장한 샘플(.hwpx)에서 지원됩니다.');
-  }
-
-  const arrayBuffer = await fetchTemplateArrayBuffer(template);
-
-  if (template.fileType === 'hwpx') {
-    const blob = await renderHwpxTemplate(
-      arrayBuffer,
-      createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth)
-    );
-    saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_치료일지.hwpx`);
-    return;
-  }
-
-  if (template.fileType !== 'docx') {
-    throw new Error('자동 치환은 HWPX 또는 DOCX 샘플 양식에서 지원됩니다.');
-  }
-
   const [{ default: Docxtemplater }, { default: PizZip }] = await Promise.all([
     import('docxtemplater'),
     import('pizzip'),
@@ -199,12 +254,84 @@ export const exportMonthlyJournalFromTemplate = async (
     nullGetter: () => '',
   });
 
-  doc.render(createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth));
+  doc.render(data);
 
-  const blob = doc.getZip().generate({
+  return doc.getZip().generate({
     type: 'blob',
     mimeType: DOCX_MIME,
   });
+};
 
-  saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_치료일지.docx`);
+const createTemplateBlob = async (
+  template: DocumentTemplateSample,
+  data: TemplateData
+) => {
+  if (template.fileType === 'hwp') {
+    throw new Error('HWP 원본(.hwp)은 샘플로 보관되지만 자동 내용 치환은 지원되지 않습니다. 한글에서 HWPX로 저장한 샘플(.hwpx)을 업로드해 주세요.');
+  }
+
+  const arrayBuffer = await fetchTemplateArrayBuffer(template);
+
+  if (template.fileType === 'hwpx') {
+    return {
+      blob: await renderHwpxTemplate(arrayBuffer, data),
+      extension: 'hwpx',
+    };
+  }
+
+  if (template.fileType === 'docx') {
+    return {
+      blob: await renderDocxTemplate(arrayBuffer, data),
+      extension: 'docx',
+    };
+  }
+
+  throw new Error('자동 치환은 HWPX 또는 DOCX 샘플 양식에서 지원됩니다.');
+};
+
+export const createAnnualPlanTemplateBlob = async (
+  template: DocumentTemplateSample,
+  student: Student,
+  annualData: AnnualPlanData,
+  selectedYear: number
+) => (
+  createTemplateBlob(template, createAnnualTemplateData(student, annualData, selectedYear))
+);
+
+export const createMonthlyJournalTemplateBlob = async (
+  template: MonthlyJournalTemplateSample,
+  student: Student,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => (
+  createTemplateBlob(template, createMonthlyTemplateData(student, monthlyData, selectedYear, selectedMonth))
+);
+
+export const exportAnnualPlanFromTemplate = async (
+  template: DocumentTemplateSample,
+  student: Student,
+  annualData: AnnualPlanData,
+  selectedYear: number
+) => {
+  const { blob, extension } = await createAnnualPlanTemplateBlob(template, student, annualData, selectedYear);
+  saveAs(blob, `${student.name}_샘플양식_연간계획서.${extension}`);
+};
+
+export const exportMonthlyJournalFromTemplate = async (
+  template: MonthlyJournalTemplateSample,
+  student: Student,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => {
+  const { blob, extension } = await createMonthlyJournalTemplateBlob(
+    template,
+    student,
+    monthlyData,
+    selectedYear,
+    selectedMonth
+  );
+
+  saveAs(blob, `${student.name}_${selectedMonth}월_샘플양식_치료일지.${extension}`);
 };

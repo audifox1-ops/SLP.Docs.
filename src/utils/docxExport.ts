@@ -247,3 +247,26 @@ export const exportMultiMonthDocs = async (
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `${selectedStudent.name}_일지_${startMonth}월-${endMonth}월.docx`);
 };
+
+export const createAnnualDocxBlob = async (
+  selectedStudent: Student,
+  annualData: AnnualPlanData,
+  selectedYear: number
+) => {
+  const doc = new Document({
+    sections: [generateAnnualWordSection(selectedStudent, annualData, selectedYear)],
+  });
+  return Packer.toBlob(doc);
+};
+
+export const createMonthlyDocxBlob = async (
+  selectedStudent: Student,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => {
+  const doc = new Document({
+    sections: [generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth)],
+  });
+  return Packer.toBlob(doc);
+};

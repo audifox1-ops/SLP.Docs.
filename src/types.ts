@@ -90,7 +90,12 @@ export interface MonthlyJournalData {
   therapyPeriod?: string;
 }
 
-export interface MonthlyJournalTemplateSample {
+export type DocumentTemplateKind = 'annual_plan' | 'monthly_journal';
+
+export type DocumentTemplateApplyMode = 'sample-reference' | 'hwp-template' | 'hwpx-template' | 'docx-template';
+
+export interface DocumentTemplateSample {
+  templateKind?: DocumentTemplateKind;
   fileName: string;
   fileUrl: string;
   fileType: string;
@@ -100,9 +105,11 @@ export interface MonthlyJournalTemplateSample {
   chunkUploadId?: string;
   chunkCount?: number;
   chunkSize?: number;
-  applyMode: 'sample-reference' | 'hwp-template' | 'hwpx-template' | 'docx-template';
+  applyMode: DocumentTemplateApplyMode;
   notes?: string;
   updatedAt?: any;
 }
+
+export type MonthlyJournalTemplateSample = DocumentTemplateSample;
 
 export type JournalTone = 'normal' | 'academic' | 'expert';

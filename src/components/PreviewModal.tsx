@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { Student, AnnualPlanData, MonthlyJournalData } from '../types';
+import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData } from '../types';
 import { AnnualPlan } from './AnnualPlan';
 import { MonthlyJournal } from './MonthlyJournal';
+import { canApplyTemplateAutomatically, exportAnnualPlanFromTemplate, exportMonthlyJournalFromTemplate } from '../utils/monthlyTemplateExport';
 
 interface Props {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface Props {
   student: Student;
   annualData: AnnualPlanData | null;
   monthlyData: MonthlyJournalData | null;
+  annualTemplate?: DocumentTemplateSample | null;
+  monthlyTemplate?: DocumentTemplateSample | null;
   selectedYear: number;
   selectedMonth: number;
 }
@@ -21,6 +24,8 @@ export const PreviewModal: React.FC<Props> = ({
   student,
   annualData,
   monthlyData,
+  annualTemplate,
+  monthlyTemplate,
   selectedYear,
   selectedMonth
 }) => {
@@ -32,12 +37,36 @@ export const PreviewModal: React.FC<Props> = ({
     window.print();
   };
 
-  const handleDocxDownload = () => {
-    downloadAsWordLike('doc');
+  const handleDocxDownload = async () => {
+    try {
+      if (await downloadFromTemplateIfAvailable()) return;
+      downloadAsWordLike('doc');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '샘플 양식 문서 생성 중 오류가 발생했습니다.');
+    }
   };
 
-  const handleHwpDownload = () => {
-    downloadAsWordLike('hwp');
+  const handleHwpDownload = async () => {
+    try {
+      if (await downloadFromTemplateIfAvailable()) return;
+      downloadAsWordLike('hwp');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '샘플 양식 문서 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const downloadFromTemplateIfAvailable = async () => {
+    if (activeTab === 'annual' && annualData && canApplyTemplateAutomatically(annualTemplate)) {
+      await exportAnnualPlanFromTemplate(annualTemplate, student, annualData, selectedYear);
+      return true;
+    }
+
+    if (activeTab === 'monthly' && monthlyData && canApplyTemplateAutomatically(monthlyTemplate)) {
+      await exportMonthlyJournalFromTemplate(monthlyTemplate, student, monthlyData, selectedYear, selectedMonth);
+      return true;
+    }
+
+    return false;
   };
 
   const downloadAsWordLike = (ext: 'doc' | 'hwp') => {

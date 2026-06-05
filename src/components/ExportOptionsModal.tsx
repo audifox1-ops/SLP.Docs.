@@ -181,7 +181,7 @@ export const ExportOptionsModal: React.FC<Props> = ({
             onClick={handleExecute}
             className="flex-1 py-3 px-4 rounded-xl font-bold bg-primary text-white hover:bg-primary-dark transition-all shadow-md shadow-primary/20"
           >
-            {actionType === 'download' ? '워드 생성하기' : '미리보기 준비'}
+            {actionType === 'download' ? '문서 생성하기' : '미리보기 준비'}
           </button>
         </div>
       </motion.div>
