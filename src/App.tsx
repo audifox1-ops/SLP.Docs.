@@ -1687,6 +1687,42 @@ export default function App() {
     }
   };
 
+  const handleGenerateAnnualPlanDraft = async (
+    toneToUse: JournalTone = journalTone,
+    successMessage = '연간계획서가 AI로 자동 생성되었습니다.'
+  ) => {
+    if (!selectedStudent) return;
+
+    setIsLoading(true);
+    try {
+      await runPreflightChecks();
+      const latestAnnual = await generateAnnualPlan(
+        selectedStudent,
+        toneToUse,
+        selectedStudent.referenceData,
+        promptTemplates.annual
+      );
+      setActiveTab('annual');
+      setAnnualData(latestAnnual);
+      setMonthlyData(null);
+      setUploadStatus({ type: 'success', message: successMessage });
+    } catch (error) {
+      console.error('Annual plan generation failed:', error);
+      const fallbackAnnual = buildFallbackAnnualPlan(selectedStudent);
+      setActiveTab('annual');
+      setAnnualData(fallbackAnnual);
+      setMonthlyData(null);
+      setIsEditing(true);
+      setUploadStatus({
+        type: 'error',
+        message: `${getErrorMessage(error, '연간계획서 자동 생성 중 오류가 발생했습니다.')} 임시 연간계획서 초안을 생성했습니다.`
+      });
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
     if (!selectedStudent) return;
 
@@ -2915,22 +2951,7 @@ export default function App() {
                             setJournalTone(newTone);
                             if (activeTab === 'annual') {
                               if (selectedStudent) {
-                                setIsLoading(true);
-                                try {
-                                  const latestAnnual = await generateAnnualPlan(selectedStudent, newTone, selectedStudent.referenceData, promptTemplates.annual);
-                                  setAnnualData(latestAnnual);
-                                  setMonthlyData(null); // Clear monthly to force sync on next view
-                                  setUploadStatus({ type: 'success', message: '연간계획서 문체가 적용되어 목표가 갱신되었습니다.' });
-                                } catch (error) {
-                                  console.error(error);
-                                  setUploadStatus({
-                                    type: 'error',
-                                    message: getErrorMessage(error, '연간계획서 갱신 중 오류가 발생했습니다.')
-                                  });
-                                } finally {
-                                  setIsLoading(false);
-                                  setTimeout(() => setUploadStatus(null), 3000);
-                                }
+                                handleGenerateAnnualPlanDraft(newTone, '연간계획서 문체가 적용되어 목표가 갱신되었습니다.');
                               }
                             } else {
                               if (monthlyData) handleGenerateDraft(newTone);
@@ -3048,16 +3069,30 @@ export default function App() {
                       </button>
 
                       {activeTab === 'annual' && (
-                        <button
-                          onClick={() => {
-                            setActiveTab('monthly');
-                            if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
-                          }}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          해당 월 일지 생성
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleGenerateAnnualPlanDraft()}
+                            disabled={isLoading}
+                            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                              isLoading
+                                ? 'bg-slate-200 text-slate-500 cursor-not-allowed shadow-none'
+                                : 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20'
+                            }`}
+                          >
+                            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            연간계획서 AI 생성
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActiveTab('monthly');
+                              if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
+                            }}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-white border border-amber-300 text-amber-700 rounded-xl font-bold text-sm hover:bg-amber-50 transition-all"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            해당 월 일지 생성
+                          </button>
+                        </>
                       )}
 
                       {activeTab === 'monthly' && (
