@@ -1635,10 +1635,10 @@ export default function App() {
         message: applyMode === 'hwpx-template'
           ? `${label} HWPX 샘플 양식이 업로드되었습니다. 다운로드 시 표와 제목을 유지해 자동 치환합니다.`
           : applyMode === 'hwp-template'
-            ? `${label} HWP 샘플 양식이 보관되었습니다. 자동 치환이 필요하면 한글에서 HWPX로 저장한 샘플을 업로드해 주세요.`
+            ? `${label} HWP 샘플 양식이 업로드되었습니다. 다운로드 시 HWPX로 변환해 표와 제목을 유지하고 자동 치환합니다.`
             : applyMode === 'docx-template'
               ? `${label} DOCX 샘플 양식이 자동 치환 양식으로 업로드되었습니다.`
-              : `${label} 샘플 양식이 참조용으로 업로드되었습니다. 자동 치환은 HWPX 또는 DOCX 파일에서 지원됩니다.`
+              : `${label} 샘플 양식이 참조용으로 업로드되었습니다. 자동 치환은 HWP, HWPX 또는 DOCX 파일에서 지원됩니다.`
       });
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
@@ -2481,7 +2481,7 @@ export default function App() {
               });
             } else {
               if (annualTemplateSample?.applyMode === 'hwp-template') {
-                notices.add('연간계획서 HWP 원본은 자동 치환할 수 없어 기본 DOCX 양식으로 생성했습니다. HWPX 샘플을 업로드하면 연간계획서 양식도 반영됩니다.');
+                notices.add('연간계획서 HWP 샘플을 HWPX로 변환하지 못해 기본 DOCX 양식으로 생성했습니다.');
               }
               files.push({
                 fileName: `${selectedStudent.name}_${startYear}_연간계획서.docx`,
@@ -2505,7 +2505,7 @@ export default function App() {
               });
             } else {
               if (monthlyTemplateSample?.applyMode === 'hwp-template') {
-                notices.add('월간일지 HWP 원본은 자동 치환할 수 없어 기본 DOCX 양식으로 생성했습니다. HWPX 샘플을 업로드하면 월간일지 양식도 반영됩니다.');
+                notices.add('월간일지 HWP 샘플을 HWPX로 변환하지 못해 기본 DOCX 양식으로 생성했습니다.');
               }
               files.push({
                 fileName: `${selectedStudent.name}_${item.year}_${item.month}월_치료일지.docx`,
@@ -2530,7 +2530,7 @@ export default function App() {
           ) {
             setUploadStatus({
               type: 'error',
-              message: 'HWP 원본은 자동 치환할 수 없어 기본 워드 양식으로 생성했습니다. 한글에서 HWPX로 저장한 샘플을 업로드하면 양식이 반영됩니다.'
+              message: '등록된 HWP 샘플을 HWPX로 변환하지 못해 기본 워드 양식으로 생성했습니다.'
             });
             setTimeout(() => setUploadStatus(null), 5000);
           }
@@ -3291,7 +3291,7 @@ export default function App() {
                                           annualTemplateSample.applyMode === 'hwpx-template'
                                             ? 'HWPX 자동 적용'
                                             : annualTemplateSample.applyMode === 'hwp-template'
-                                              ? 'HWP 보관'
+                                              ? 'HWP→HWPX 자동 적용'
                                               : annualTemplateSample.applyMode === 'docx-template'
                                                 ? 'DOCX 자동 적용'
                                                 : '참조용'
@@ -3341,7 +3341,7 @@ export default function App() {
                                           monthlyTemplateSample.applyMode === 'hwpx-template'
                                             ? 'HWPX 자동 적용'
                                             : monthlyTemplateSample.applyMode === 'hwp-template'
-                                              ? 'HWP 보관'
+                                              ? 'HWP→HWPX 자동 적용'
                                               : monthlyTemplateSample.applyMode === 'docx-template'
                                                 ? 'DOCX 보조 자동 적용'
                                                 : '참조용'

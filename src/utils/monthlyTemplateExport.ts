@@ -8,6 +8,7 @@ const HWPX_MIME = 'application/vnd.hancom.hwpx';
 const TEMPLATE_CACHE_NAME = 'slp-docs-monthly-template-v2';
 const MAX_FIXED_SESSION_PLACEHOLDERS = 12;
 const MAX_FIXED_ANNUAL_MONTH_PLACEHOLDERS = 12;
+const HWPML_PARAGRAPH_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
 
 export const MONTHLY_TEMPLATE_PLACEHOLDERS = [
   'title',
@@ -106,6 +107,8 @@ export const COMBINED_FIXED_PLACEHOLDER_EXAMPLES = [
 ] as const;
 
 type TemplateData = Record<string, string | Record<string, string>[]>;
+type XmlParserLike = { parseFromString: (source: string, mimeType: string) => Document };
+type XmlSerializerLike = { serializeToString: (node: Node) => string };
 
 const sanitizeTemplateValue = (value: string | number | undefined | null) => (
   value === undefined || value === null ? '' : String(value)
@@ -119,6 +122,376 @@ const escapeXml = (value: string) => (
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;')
 );
+
+const normalizeText = (value: string) => value.replace(/\s+/g, ' ').trim();
+const compactText = (value: string) => normalizeText(value).replace(/\s/g, '');
+
+const getLocalName = (node: Node) => (
+  (node as Element).localName || node.nodeName.split(':').pop() || node.nodeName
+);
+
+const isElementNode = (node: Node): node is Element => node.nodeType === 1;
+
+const childElementsByName = (element: Element, localName: string) => (
+  Array.from(element.childNodes).filter((node): node is Element => (
+    isElementNode(node) && getLocalName(node) === localName
+  ))
+);
+
+const descendantElementsByName = (element: Element | Document, localName: string) => (
+  Array.from(element.getElementsByTagName('*')).filter((node): node is Element => (
+    getLocalName(node) === localName
+  ))
+);
+
+const getNodeText = (node: Element | Node) => {
+  if (!('getElementsByTagName' in node)) return '';
+  return descendantElementsByName(node as Element, 't').map(textNode => textNode.textContent || '').join('');
+};
+
+const getCellText = (cell: Element) => normalizeText(getNodeText(cell));
+
+const ensureCellTextElement = (cell: Element) => {
+  const textNodes = descendantElementsByName(cell, 't');
+  if (textNodes[0]) return textNodes[0];
+
+  const run = descendantElementsByName(cell, 'run')[0];
+  if (!run) return null;
+
+  const owner = cell.ownerDocument;
+  const prefix = run.prefix || 'hp';
+  const textElement = owner.createElementNS(HWPML_PARAGRAPH_NS, `${prefix}:t`);
+  run.appendChild(textElement);
+  return textElement;
+};
+
+const setCellText = (cell: Element | undefined, value: string | undefined | null) => {
+  if (!cell) return 0;
+  const safeValue = sanitizeTemplateValue(value);
+  const textNodes = descendantElementsByName(cell, 't');
+  const firstTextNode = textNodes[0] || ensureCellTextElement(cell);
+  if (!firstTextNode) return 0;
+
+  const previous = getCellText(cell);
+  firstTextNode.textContent = safeValue;
+  textNodes.slice(1).forEach(textNode => {
+    textNode.textContent = '';
+  });
+
+  return previous === normalizeText(safeValue) ? 0 : 1;
+};
+
+const setCellsAfter = (cells: Element[], index: number, value: string | undefined | null) => {
+  let changes = setCellText(cells[index + 1], value);
+  for (let nextIndex = index + 2; nextIndex < cells.length; nextIndex++) {
+    changes += setCellText(cells[nextIndex], '');
+  }
+  return changes;
+};
+
+const getXmlTools = async () => {
+  const ParserCtor = typeof DOMParser !== 'undefined'
+    ? DOMParser
+    : (await import('@xmldom/xmldom')).DOMParser;
+  const SerializerCtor = typeof XMLSerializer !== 'undefined'
+    ? XMLSerializer
+    : (await import('@xmldom/xmldom')).XMLSerializer;
+
+  return {
+    parser: new ParserCtor() as XmlParserLike,
+    serializer: new SerializerCtor() as XmlSerializerLike,
+  };
+};
+
+const getSelectedTemplateMonth = (data: TemplateData) => {
+  const value = data.monthlyMonth || data.month;
+  const month = Number(value);
+  return Number.isFinite(month) && month >= 1 && month <= 12 ? month : null;
+};
+
+const hasAnnualTemplateData = (data: TemplateData) => (
+  Boolean(data.annualTitle || data.currentLevelText || data.longTermGoalsText || data.monthlyGoals)
+);
+
+const hasMonthlyTemplateData = (data: TemplateData) => (
+  Boolean(data.monthlyTitle || data.month || data.monthlyGoal || data.sessions)
+);
+
+const getAnnualGoals = (data: TemplateData) => {
+  const goals = data.annualMonthlyGoals || data.monthlyGoals;
+  return Array.isArray(goals) ? goals : [];
+};
+
+const getMonthlySessions = (data: TemplateData) => {
+  const sessions = data.monthlySessions || data.sessions;
+  return Array.isArray(sessions) ? sessions : [];
+};
+
+const formatScheduleFrequency = (value: string | Record<string, string>[] | undefined) => {
+  const text = sanitizeTemplateValue(value as string | undefined);
+  if (!text) return '';
+  return text.includes('회') ? text : `주${text}회`;
+};
+
+const getAnnualLevelText = (data: TemplateData) => (
+  sanitizeTemplateValue((data.annualCurrentLevelText || data.currentLevelText || data.currentLevel) as string | undefined)
+);
+
+const getMonthlyLevelText = (data: TemplateData) => (
+  sanitizeTemplateValue((data.monthlyCurrentLevel || data.currentLevel) as string | undefined)
+);
+
+const getAnnualTherapyPeriod = (data: TemplateData) => (
+  sanitizeTemplateValue((data.annualTherapyPeriod || data.therapyPeriod) as string | undefined)
+);
+
+const getMonthlyTherapyPeriod = (data: TemplateData) => (
+  sanitizeTemplateValue((data.therapyPeriod || data.annualTherapyPeriod) as string | undefined)
+);
+
+const removeIrrelevantSlpBlocks = (document: Document, data: TemplateData) => {
+  const keepAnnual = hasAnnualTemplateData(data);
+  const keepMonthly = hasMonthlyTemplateData(data);
+  const selectedMonth = getSelectedTemplateMonth(data);
+  let changes = 0;
+
+  descendantElementsByName(document, 'sec').forEach(section => {
+    let currentBlock: 'annual' | 'monthly' | null = null;
+    let currentMonth: number | null = null;
+    const nodes = Array.from(section.childNodes);
+
+    nodes.forEach(node => {
+      const text = normalizeText(getNodeText(node));
+      const monthlyTitleMatch = text.match(/개별\s*치료\s*일지\s*\((\d{1,2})\s*월\)/);
+
+      if (/연간\s*계획서/.test(text)) {
+        currentBlock = 'annual';
+        currentMonth = null;
+      } else if (monthlyTitleMatch) {
+        currentBlock = 'monthly';
+        currentMonth = Number(monthlyTitleMatch[1]);
+      }
+
+      const shouldRemove =
+        (currentBlock === 'annual' && !keepAnnual) ||
+        (currentBlock === 'monthly' && (!keepMonthly || (selectedMonth !== null && currentMonth !== selectedMonth)));
+
+      if (shouldRemove && node.parentNode) {
+        node.parentNode.removeChild(node);
+        changes++;
+      }
+    });
+  });
+
+  return changes;
+};
+
+const removeSamplePaymentLedgerParagraphs = (document: Document) => {
+  let changes = 0;
+  descendantElementsByName(document, 'sec').forEach(section => {
+    Array.from(section.childNodes).forEach(node => {
+      const text = normalizeText(getNodeText(node));
+      if (/^\d{4}-\d{2}-\d{2}\s*\([^)]+\)\s*\/.*원\s*\/.*치료/.test(text) && node.parentNode) {
+        node.parentNode.removeChild(node);
+        changes++;
+      }
+    });
+  });
+  return changes;
+};
+
+const replaceSlpTitles = (document: Document, data: TemplateData) => {
+  const annualTitle = sanitizeTemplateValue((data.annualTitle || data.title) as string | undefined);
+  const monthlyTitle = sanitizeTemplateValue((data.monthlyTitle || data.title) as string | undefined);
+  let changes = 0;
+
+  descendantElementsByName(document, 't').forEach(textNode => {
+    const text = normalizeText(textNode.textContent || '');
+    if (annualTitle && /연간\s*계획서/.test(text)) {
+      textNode.textContent = annualTitle;
+      changes++;
+    } else if (monthlyTitle && /개별\s*치료\s*일지\s*\(\d{1,2}\s*월\)/.test(text)) {
+      textNode.textContent = monthlyTitle;
+      changes++;
+    }
+  });
+
+  return changes;
+};
+
+const fillStudentInfoTable = (rows: Element[][], tableText: string, data: TemplateData) => {
+  const headerIndex = rows.findIndex(cells => (
+    cells.some(cell => compactText(getCellText(cell)).includes('학생명')) &&
+    cells.some(cell => compactText(getCellText(cell)).includes('생년월일'))
+  ));
+  if (headerIndex < 0) return 0;
+
+  const isAnnualInfoTable = tableText.includes('복지부바우처') || tableText.includes('장기치료목표');
+  let changes = 0;
+
+  rows.slice(headerIndex + 1).forEach(cells => {
+    if (cells.length >= 5) {
+      changes += setCellText(cells[0], data.studentName as string);
+      changes += setCellText(cells[1], data.birthDate as string);
+      changes += setCellText(cells[2], data.school as string);
+      changes += setCellText(cells[3], data.disabilityType as string);
+      changes += setCellText(cells[4], data.treatmentArea as string);
+    }
+
+    cells.forEach((cell, index) => {
+      const label = compactText(getCellText(cell));
+      if (label === '치료기간') {
+        changes += setCellText(cells[index + 1], isAnnualInfoTable ? getAnnualTherapyPeriod(data) : getMonthlyTherapyPeriod(data));
+      } else if (label === '치료사') {
+        changes += setCellText(cells[index + 1], data.therapistName as string);
+      } else if (label === '요일') {
+        changes += setCellText(cells[index + 1], data.scheduleDay as string);
+      } else if (label === '시간') {
+        changes += setCellText(cells[index + 1], data.scheduleTime as string);
+      } else if (label === '횟수') {
+        changes += setCellText(cells[index + 1], formatScheduleFrequency(data.scheduleFrequency));
+      }
+    });
+  });
+
+  return changes;
+};
+
+const fillDescriptionRows = (rows: Element[][], data: TemplateData) => {
+  const selectedMonth = getSelectedTemplateMonth(data);
+  let changes = 0;
+
+  rows.forEach(cells => {
+    if (cells.length < 2) return;
+    const label = compactText(getCellText(cells[0]));
+
+    if (label.includes('현행수준및특성')) {
+      changes += setCellsAfter(cells, 0, getAnnualLevelText(data));
+    } else if (label === '현행수준') {
+      changes += setCellsAfter(cells, 0, getMonthlyLevelText(data));
+    } else if (label.includes('장기치료목표')) {
+      changes += setCellsAfter(cells, 0, data.annualLongTermGoalsText as string || data.longTermGoalsText as string);
+    } else if (label.includes('월치료목표')) {
+      if (selectedMonth) changes += setCellText(cells[0], `( ${selectedMonth} )월 치료 목표`);
+      changes += setCellsAfter(cells, 0, data.monthlyGoal as string);
+    } else if (label.includes('월치료결과')) {
+      if (selectedMonth) changes += setCellText(cells[0], `( ${selectedMonth} )월 치료 결과`);
+      changes += setCellsAfter(cells, 0, data.monthlyResult as string || data.result as string);
+    }
+  });
+
+  return changes;
+};
+
+const fillAnnualGoalRows = (rows: Element[][], data: TemplateData) => {
+  const goals = getAnnualGoals(data);
+  if (goals.length === 0) return 0;
+
+  const headerIndex = rows.findIndex(cells => {
+    const labels = cells.map(cell => compactText(getCellText(cell)));
+    return labels[0] === '월' && labels.some(label => label.includes('단기목표') || label.includes('월목표'));
+  });
+  if (headerIndex < 0) return 0;
+
+  let changes = 0;
+  rows.slice(headerIndex + 1).forEach(cells => {
+    const monthMatch = getCellText(cells[0]).match(/(\d{1,2})\s*월/);
+    if (!monthMatch) return;
+    const month = Number(monthMatch[1]);
+    const goal = goals.find(item => Number(item.monthNumber || item.month) === month);
+    if (!goal) return;
+
+    changes += setCellText(cells[0], `${month}월`);
+    changes += setCellText(cells[1], goal.goal);
+    changes += setCellText(cells[2], goal.content);
+  });
+
+  return changes;
+};
+
+const fillMonthlySessionRows = (rows: Element[][], data: TemplateData) => {
+  const sessions = getMonthlySessions(data);
+  if (sessions.length === 0) return 0;
+
+  const headerIndex = rows.findIndex(cells => {
+    const labels = cells.map(cell => compactText(getCellText(cell)));
+    return labels.includes('날짜') && labels.includes('치료내용') && labels.includes('아동반응');
+  });
+  if (headerIndex < 0) return 0;
+
+  let changes = 0;
+  rows.slice(headerIndex + 1).forEach((cells, index) => {
+    if (cells.length < 4) return;
+    const session = sessions[index];
+    changes += setCellText(cells[0], session?.date || '');
+    changes += setCellText(cells[1], session?.content || '');
+    changes += setCellText(cells[2], session?.reaction || '');
+    changes += setCellText(cells[3], session?.consultation || '');
+  });
+
+  return changes;
+};
+
+const applySemanticSlpTemplateData = async (xml: string, data: TemplateData) => {
+  const { parser, serializer } = await getXmlTools();
+  const document = parser.parseFromString(xml, 'application/xml');
+  let changes = 0;
+
+  changes += removeIrrelevantSlpBlocks(document, data);
+  changes += removeSamplePaymentLedgerParagraphs(document);
+  changes += replaceSlpTitles(document, data);
+
+  descendantElementsByName(document, 'tbl').forEach(table => {
+    const rows = childElementsByName(table, 'tr').map(row => childElementsByName(row, 'tc'));
+    const tableText = compactText(getNodeText(table));
+    changes += fillStudentInfoTable(rows, tableText, data);
+    changes += fillDescriptionRows(rows, data);
+    changes += fillAnnualGoalRows(rows, data);
+    changes += fillMonthlySessionRows(rows, data);
+  });
+
+  return {
+    xml: changes > 0 ? serializer.serializeToString(document) : xml,
+    changes,
+  };
+};
+
+const countOccurrences = (source: string, needle: string) => {
+  if (!needle) return 0;
+  return source.split(needle).length - 1;
+};
+
+const createPreviewText = (data: TemplateData) => {
+  const lines: string[] = [];
+  const annualTitle = sanitizeTemplateValue((data.annualTitle || data.title) as string | undefined);
+  const monthlyTitle = sanitizeTemplateValue((data.monthlyTitle || data.title) as string | undefined);
+
+  if (hasAnnualTemplateData(data)) {
+    lines.push(annualTitle, sanitizeTemplateValue(data.studentName as string), getAnnualTherapyPeriod(data));
+    const annualLevel = getAnnualLevelText(data);
+    const longTermGoals = sanitizeTemplateValue((data.annualLongTermGoalsText || data.longTermGoalsText) as string | undefined);
+    if (annualLevel) lines.push(annualLevel);
+    if (longTermGoals) lines.push(longTermGoals);
+    getAnnualGoals(data).forEach(goal => {
+      const monthText = sanitizeTemplateValue(goal.month || goal.monthNumber);
+      lines.push(`${monthText.includes('월') ? monthText : `${monthText}월`} ${goal.goal || ''} ${goal.content || ''}`.trim());
+    });
+  }
+
+  if (hasMonthlyTemplateData(data)) {
+    lines.push(monthlyTitle, sanitizeTemplateValue(data.studentName as string), getMonthlyTherapyPeriod(data));
+    const monthlyLevel = getMonthlyLevelText(data);
+    if (monthlyLevel) lines.push(monthlyLevel);
+    if (data.monthlyGoal) lines.push(sanitizeTemplateValue(data.monthlyGoal as string));
+    getMonthlySessions(data).forEach(session => {
+      lines.push(`${session.date || ''} ${session.content || ''} ${session.reaction || ''} ${session.consultation || ''}`.trim());
+    });
+    const monthlyResult = sanitizeTemplateValue((data.monthlyResult || data.result) as string | undefined);
+    if (monthlyResult) lines.push(monthlyResult);
+  }
+
+  return lines.filter(Boolean).join('\r\n');
+};
 
 const getCache = async () => {
   if (typeof window === 'undefined' || !('caches' in window)) return null;
@@ -156,7 +529,7 @@ const fetchTemplateArrayBuffer = async (template: DocumentTemplateSample) => {
 };
 
 export const canApplyTemplateAutomatically = (template: DocumentTemplateSample | null | undefined) => (
-  template?.applyMode === 'hwpx-template' || template?.applyMode === 'docx-template'
+  template?.applyMode === 'hwp-template' || template?.applyMode === 'hwpx-template' || template?.applyMode === 'docx-template'
 );
 
 export const createMonthlyTemplateData = (
@@ -304,25 +677,55 @@ const renderHwpxTemplate = async (
   const { default: PizZip } = await import('pizzip');
   const zip = new PizZip(arrayBuffer);
   const files = zip.file(/\.(xml|rels)$/i);
+  let replacementCount = 0;
+  let semanticChangeCount = 0;
 
-  files.forEach(file => {
+  for (const file of files) {
     const original = file.asText();
     let next = original;
 
     Object.entries(data).forEach(([key, value]) => {
       if (Array.isArray(value)) return;
-      next = next.split(`{{${key}}}`).join(escapeXml(value));
+      const placeholder = `{{${key}}}`;
+      replacementCount += countOccurrences(next, placeholder);
+      next = next.split(placeholder).join(escapeXml(value));
     });
+
+    if (/^Contents\/section.*\.xml$/i.test(file.name)) {
+      const semanticResult = await applySemanticSlpTemplateData(next, data);
+      next = semanticResult.xml;
+      semanticChangeCount += semanticResult.changes;
+    }
 
     if (next !== original) {
       zip.file(file.name, next);
     }
-  });
+  }
+
+  if (replacementCount === 0 && semanticChangeCount === 0) {
+    throw new Error('샘플 양식에서 자동으로 바꿀 수 있는 placeholder 또는 치료 서류 표 구조를 찾지 못했습니다.');
+  }
+
+  const previewTextFile = zip.file('Preview/PrvText.txt');
+  if (previewTextFile) {
+    zip.file('Preview/PrvText.txt', createPreviewText(data));
+  }
 
   return zip.generate({
     type: 'blob',
     mimeType: HWPX_MIME,
   });
+};
+
+const convertHwpToHwpx = async (arrayBuffer: ArrayBuffer, fileName: string) => {
+  const { hwpToHwpx } = await import('@ssabrojs/hwpxjs/browser');
+  const bytes = new Uint8Array(arrayBuffer);
+  const converted = await hwpToHwpx(bytes, {
+    title: fileName.replace(/\.hwp$/i, ''),
+    creator: 'SLP Docs',
+  });
+
+  return converted.buffer.slice(converted.byteOffset, converted.byteOffset + converted.byteLength);
 };
 
 const renderDocxTemplate = async (
@@ -353,11 +756,14 @@ const createTemplateBlob = async (
   template: DocumentTemplateSample,
   data: TemplateData
 ) => {
-  if (template.fileType === 'hwp') {
-    throw new Error('HWP 원본(.hwp)은 샘플로 보관되지만 자동 내용 치환은 지원되지 않습니다. 한글에서 HWPX로 저장한 샘플(.hwpx)을 업로드해 주세요.');
-  }
-
   const arrayBuffer = await fetchTemplateArrayBuffer(template);
+
+  if (template.fileType === 'hwp') {
+    return {
+      blob: await renderHwpxTemplate(await convertHwpToHwpx(arrayBuffer, template.fileName), data),
+      extension: 'hwpx',
+    };
+  }
 
   if (template.fileType === 'hwpx') {
     return {
@@ -373,7 +779,7 @@ const createTemplateBlob = async (
     };
   }
 
-  throw new Error('자동 치환은 HWPX 또는 DOCX 샘플 양식에서 지원됩니다.');
+  throw new Error('자동 치환은 HWP, HWPX 또는 DOCX 샘플 양식에서 지원됩니다.');
 };
 
 export const createAnnualPlanTemplateBlob = async (

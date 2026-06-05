@@ -77,9 +77,9 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
     onUpload(activeKind, file);
   };
 
-  const isAutoTemplate = ['hwpx-template', 'docx-template'].includes(template?.applyMode || '');
+  const isAutoTemplate = ['hwp-template', 'hwpx-template', 'docx-template'].includes(template?.applyMode || '');
   const templateFormatLabel =
-    template?.applyMode === 'hwp-template' ? 'HWP 보관' :
+    template?.applyMode === 'hwp-template' ? 'HWP→HWPX 자동 양식' :
     template?.applyMode === 'hwpx-template' ? 'HWPX 자동 양식' :
     template?.applyMode === 'docx-template' ? 'DOCX 자동 양식' :
     '참조용';
@@ -159,7 +159,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 ? normalizedProgress !== null ? `업로드 중입니다 (${normalizedProgress}%)` : '업로드 중입니다'
                 : '파일을 선택하거나 여기에 놓기'}
             </div>
-            <div className="text-xs text-text-muted mt-2">{label} 샘플 · HWPX/DOCX는 자동 치환 가능 · 최대 20MB</div>
+            <div className="text-xs text-text-muted mt-2">{label} 샘플 · HWP/HWPX/DOCX는 자동 치환 가능 · 최대 20MB</div>
             {isUploading && normalizedProgress !== null && (
               <div className="mt-5 max-w-sm mx-auto">
                 <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
@@ -224,7 +224,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
           )}
 
           <div className="bg-slate-50 border border-border-theme rounded-2xl p-4 text-sm text-text-muted leading-relaxed">
-            표와 제목까지 자동으로 유지해 치환하려면 한글에서 샘플을 HWPX로 저장하거나 DOCX 샘플을 업로드해 주세요. 값을 넣을 칸에는 아래 형식의 placeholder를 입력합니다.
+            표와 제목까지 자동으로 유지해 치환하려면 HWP, HWPX, DOCX 샘플을 업로드해 주세요. 값을 넣을 칸에는 아래 형식의 placeholder를 입력합니다.
             <div className="flex flex-wrap gap-1.5 mt-3">
               {placeholders.filter(name => name !== 'sessions' && name !== 'monthlyGoals').map(name => (
                 <code key={name} className="px-2 py-1 rounded-lg bg-white border border-border-theme text-[11px] font-bold text-text-main">
@@ -257,7 +257,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 <code key={name} className="ml-1">{`{{${name}}}`}</code>
               ))}
             </div>
-            <div className="mt-2 text-xs">HWP 원본은 보관/열기만 가능하며 자동 치환은 HWPX 또는 DOCX에서 적용됩니다.</div>
+            <div className="mt-2 text-xs">HWP 원본은 다운로드 시 HWPX로 변환한 뒤 자동 치환합니다.</div>
           </div>
         </div>
       </div>

@@ -76,7 +76,7 @@ export const PreviewModal: React.FC<Props> = ({
     try {
       if (await downloadFromTemplateIfAvailable()) return;
       await downloadDefaultDocx();
-      alert('HWP 원본 형식은 브라우저에서 새 파일로 안전하게 생성할 수 없어, 깨짐 방지를 위해 DOCX로 저장했습니다. 샘플과 같은 한글 양식이 필요하면 HWPX 샘플을 업로드해 주세요.');
+      alert('새 HWP 원본 파일은 브라우저에서 안전하게 생성할 수 없어, 깨짐 방지를 위해 DOCX로 저장했습니다. 샘플과 같은 한글 양식이 필요하면 HWP/HWPX/DOCX 샘플을 업로드해 주세요.');
     } catch (error) {
       alert(error instanceof Error ? error.message : '샘플 양식 문서 생성 중 오류가 발생했습니다.');
     }

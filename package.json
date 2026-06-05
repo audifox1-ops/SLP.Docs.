@@ -16,8 +16,10 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@ssabrojs/hwpxjs": "^0.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "@xmldom/xmldom": "^0.9.10",
     "docx": "^9.6.1",
     "docxtemplater": "^3.68.7",
     "dotenv": "^17.2.3",
