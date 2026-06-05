@@ -273,3 +273,19 @@ export const createMonthlyDocxBlob = async (
   });
   return Packer.toBlob(doc);
 };
+
+export const createCombinedAnnualMonthlyDocxBlob = async (
+  selectedStudent: Student,
+  annualData: AnnualPlanData,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number
+) => {
+  const doc = new Document({
+    sections: [
+      generateAnnualWordSection(selectedStudent, annualData, selectedYear),
+      generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth),
+    ],
+  });
+  return Packer.toBlob(doc);
+};

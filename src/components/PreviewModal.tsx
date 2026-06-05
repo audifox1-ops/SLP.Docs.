@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { saveAs } from 'file-saver';
 import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData } from '../types';
 import { AnnualPlan } from './AnnualPlan';
 import { MonthlyJournal } from './MonthlyJournal';
 import { canApplyTemplateAutomatically, exportAnnualPlanFromTemplate, exportCombinedJournalFromTemplate, exportMonthlyJournalFromTemplate } from '../utils/monthlyTemplateExport';
+import { createAnnualDocxBlob, createCombinedAnnualMonthlyDocxBlob, createMonthlyDocxBlob } from '../utils/docxExport';
 
 interface Props {
   isOpen: boolean;
@@ -64,7 +66,7 @@ export const PreviewModal: React.FC<Props> = ({
   const handleDocxDownload = async () => {
     try {
       if (await downloadFromTemplateIfAvailable()) return;
-      downloadAsWordLike('doc');
+      await downloadDefaultDocx();
     } catch (error) {
       alert(error instanceof Error ? error.message : '샘플 양식 문서 생성 중 오류가 발생했습니다.');
     }
@@ -73,14 +75,15 @@ export const PreviewModal: React.FC<Props> = ({
   const handleHwpDownload = async () => {
     try {
       if (await downloadFromTemplateIfAvailable()) return;
-      downloadAsWordLike('hwp');
+      await downloadDefaultDocx();
+      alert('HWP 원본 형식은 브라우저에서 새 파일로 안전하게 생성할 수 없어, 깨짐 방지를 위해 DOCX로 저장했습니다. 샘플과 같은 한글 양식이 필요하면 HWPX 샘플을 업로드해 주세요.');
     } catch (error) {
       alert(error instanceof Error ? error.message : '샘플 양식 문서 생성 중 오류가 발생했습니다.');
     }
   };
 
   const downloadFromTemplateIfAvailable = async () => {
-    const combinedTemplateForExport = combinedTemplate || (!annualTemplate && activeTab === 'monthly' ? monthlyTemplate : null);
+    const combinedTemplateForExport = combinedTemplate || (!annualTemplate ? monthlyTemplate : null);
     if (annualData && monthlyData && canApplyTemplateAutomatically(combinedTemplateForExport)) {
       await exportCombinedJournalFromTemplate(combinedTemplateForExport, student, annualData, monthlyData, selectedYear, selectedMonth);
       return true;
@@ -99,43 +102,23 @@ export const PreviewModal: React.FC<Props> = ({
     return false;
   };
 
-  const downloadAsWordLike = (ext: 'doc' | 'hwp') => {
-    if (!contentRef.current) return;
-    
-    const contentHtml = contentRef.current.innerHTML;
-    const header = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head>
-        <meta charset='utf-8'>
-        <style>
-          table { border-collapse: collapse; width: 100%; }
-          table, th, td { border: 1px solid black; }
-          th, td { padding: 4px; font-size: 11pt; }
-        </style>
-      </head><body>`;
-    const footer = "</body></html>";
-    const sourceHTML = header + contentHtml + footer;
-    
-    // HWP를 위한 Mime type 분기
-    const mimeType = ext === 'hwp' ? 'application/x-hwp' : 'application/vnd.ms-word';
-    
-    // Blob 생성 방식으로 변경하여 대용량 처리 안정성 강화
-    const blob = new Blob(['\ufeff', sourceHTML], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    
-    const fileDownload = document.createElement("a");
-    document.body.appendChild(fileDownload);
-    fileDownload.href = url;
-    
-    const docName = showCombinedPreview
-      ? `${student.name}_${selectedMonth}월_연간월간.${ext}`
-      : activeTab === 'annual'
-        ? `${student.name}_연간계획서.${ext}`
-        : `${student.name}_${selectedMonth}월_치료일지.${ext}`;
-      
-    fileDownload.download = docName;
-    fileDownload.click();
-    document.body.removeChild(fileDownload);
-    URL.revokeObjectURL(url);
+  const downloadDefaultDocx = async () => {
+    if (showCombinedPreview && annualData && monthlyData) {
+      const blob = await createCombinedAnnualMonthlyDocxBlob(student, annualData, monthlyData, selectedYear, selectedMonth);
+      saveAs(blob, `${student.name}_${selectedMonth}월_연간월간.docx`);
+      return;
+    }
+
+    if (activeTab === 'annual' && annualData) {
+      const blob = await createAnnualDocxBlob(student, annualData, selectedYear);
+      saveAs(blob, `${student.name}_연간계획서.docx`);
+      return;
+    }
+
+    if (activeTab === 'monthly' && monthlyData) {
+      const blob = await createMonthlyDocxBlob(student, monthlyData, selectedYear, selectedMonth);
+      saveAs(blob, `${student.name}_${selectedMonth}월_치료일지.docx`);
+    }
   };
 
   return (
@@ -189,13 +172,13 @@ export const PreviewModal: React.FC<Props> = ({
               onClick={handleHwpDownload}
               className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
             >
-              ⬇️ HWP(한글) 다운로드
+              ⬇️ 한글(HWPX) 다운로드
             </button>
             <button
               onClick={handleDocxDownload}
               className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded hover:bg-green-700 transition-colors flex items-center gap-1"
             >
-              ⬇️ DOC(워드) 다운로드
+              ⬇️ DOCX(워드) 다운로드
             </button>
             <button
               onClick={handlePrint}
@@ -251,30 +234,30 @@ export const PreviewModal: React.FC<Props> = ({
                   />
                 )}
 
-                  {activeTab === 'monthly' && monthlyData && (
-                    <MonthlyJournal
-                      student={student}
-                      data={monthlyData}
-                      month={selectedMonth}
-                      year={selectedYear}
-                      isEditing={false}
-                    />
-                  )}
+                {activeTab === 'monthly' && monthlyData && (
+                  <MonthlyJournal
+                    student={student}
+                    data={monthlyData}
+                    month={selectedMonth}
+                    year={selectedYear}
+                    isEditing={false}
+                  />
+                )}
 
-                  {activeTab === 'annual' && !annualData && (
-                    <div className="text-center text-slate-500 py-20">
-                      연간계획서 데이터가 없습니다. 먼저 생성해주세요.
-                    </div>
-                  )}
-                  {activeTab === 'monthly' && !monthlyData && (
-                    <div className="text-center text-slate-500 py-20">
-                      월간일지 데이터가 없습니다. 먼저 생성해주세요.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                {activeTab === 'annual' && !annualData && (
+                  <div className="text-center text-slate-500 py-20">
+                    연간계획서 데이터가 없습니다. 먼저 생성해주세요.
+                  </div>
+                )}
+                {activeTab === 'monthly' && !monthlyData && (
+                  <div className="text-center text-slate-500 py-20">
+                    월간일지 데이터가 없습니다. 먼저 생성해주세요.
+                  </div>
+                )}
+              </>
+            )}
           </div>
+        </div>
 
       </div>
     </div>
