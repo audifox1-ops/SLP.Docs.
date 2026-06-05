@@ -17,6 +17,7 @@ import { canApplyTemplateAutomatically, createAnnualPlanTemplateBlob, createComb
 import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
+import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import {
   collection,
@@ -1009,10 +1010,36 @@ export default function App() {
     });
   };
 
-  const buildFallbackAnnualPlan = (student: Student): AnnualPlanData => {
-    const months = Array.from({ length: 12 }).map((_, i) => (i < 10 ? i + 3 : i - 9));
+  const normalizeAnnualPlanData = (data: AnnualPlanData, student: Student | null = selectedStudent) => (
+    ensureAnnualPlanPeriod(data, selectedYear, student || undefined)
+  );
 
-    return {
+  const createEmptyAnnualPlan = (student: Student): AnnualPlanData => (
+    ensureAnnualPlanPeriod({
+      startYear: selectedYear,
+      startMonth: 3,
+      endYear: selectedYear + 1,
+      endMonth: 2,
+      currentLevel: ['', ''],
+      longTermGoals: ['', ''],
+      monthlyGoals: []
+    }, selectedYear, student)
+  );
+
+  const getTherapyPeriodForMonthly = (annual: AnnualPlanData | null = annualData) => (
+    annual ? formatAnnualPlanPeriod(annual, selectedYear) : `${selectedYear}.3.~`
+  );
+
+  const buildFallbackAnnualPlan = (student: Student): AnnualPlanData => {
+    const period = {
+      startYear: selectedYear,
+      startMonth: 3,
+      endYear: selectedYear + 1,
+      endMonth: 2
+    };
+
+    return ensureAnnualPlanPeriod({
+      ...period,
       currentLevel: [
         `${student.disabilityType} 특성을 고려한 기초 기능 및 참여 수준 점검이 필요함.`,
         `${student.treatmentArea} 영역에서 단계적 촉구와 반복 중재를 통해 기능 향상을 도모함.`
@@ -1021,16 +1048,17 @@ export default function App() {
         `${student.treatmentArea} 활동 참여와 과제 수행 지속 시간을 향상함.`,
         `치료 상황에서 습득한 기능을 일상 및 학교 장면으로 일반화함.`
       ],
-      monthlyGoals: months.map(month => {
+      monthlyGoals: getAnnualPlanPeriodMonths(period, selectedYear).map(({ year, month }) => {
         const area = student.monthlyAreas?.[month] || student.treatmentArea;
         return {
+          year,
           month,
           area,
           goal: `${area} 기초 기능 향상 및 안정적 참여 태도 형성함.`,
           content: `${area} 관련 과제를 단계화하여 모델링, 촉구, 반복 연습을 실시함.`
         };
       })
-    };
+    }, selectedYear, student);
   };
 
   const buildFallbackMonthlyJournal = (
@@ -1203,7 +1231,7 @@ export default function App() {
 
   const restoreHistoryEntry = (entry: DocumentHistoryEntry) => {
     if (entry.docType === 'annual') {
-      setAnnualData(entry.data as AnnualPlanData);
+      setAnnualData(normalizeAnnualPlanData(entry.data as AnnualPlanData));
       setActiveTab('annual');
     } else {
       skipNextFetchRef.current = true;
@@ -1225,7 +1253,8 @@ export default function App() {
       if (!annualData) return [{ level: 'error', label: '연간계획서 데이터가 없습니다.' }];
       if (annualData.currentLevel.every(item => !item.trim())) issues.push({ level: 'warning', label: '현행 수준이 비어 있습니다.' });
       if (annualData.longTermGoals.every(item => !item.trim())) issues.push({ level: 'warning', label: '장기 목표가 비어 있습니다.' });
-      if (annualData.monthlyGoals.length < 12) issues.push({ level: 'error', label: '월별 목표가 12개월보다 적습니다.' });
+      const expectedAnnualMonths = getAnnualPlanPeriodMonths(annualData, selectedYear).length;
+      if (annualData.monthlyGoals.length < expectedAnnualMonths) issues.push({ level: 'error', label: `월별 목표가 설정 기간(${expectedAnnualMonths}개월)보다 적습니다.` });
       const blankMonths = annualData.monthlyGoals.filter(goal => !goal.goal.trim() || !goal.content.trim()).map(goal => goal.month);
       if (blankMonths.length > 0) issues.push({ level: 'warning', label: `목표 또는 치료 내용이 빈 월: ${blankMonths.join(', ')}월` });
       const longItems = [...annualData.currentLevel, ...annualData.longTermGoals, ...annualData.monthlyGoals.flatMap(goal => [goal.goal, goal.content])].filter(text => text.length > 160);
@@ -1290,8 +1319,9 @@ export default function App() {
     try {
       const parsed = JSON.parse(raw);
       if (item.type === 'annual') {
+        const draftStudent = selectedStudent?.name === item.studentName ? selectedStudent : null;
         setActiveTab('annual');
-        setAnnualData(parsed);
+        setAnnualData(normalizeAnnualPlanData(parsed as AnnualPlanData, draftStudent));
       } else {
         skipNextFetchRef.current = true;
         setActiveTab('monthly');
@@ -1702,8 +1732,9 @@ export default function App() {
         selectedStudent.referenceData,
         promptTemplates.annual
       );
+      const annualWithPeriod = normalizeAnnualPlanData(latestAnnual, selectedStudent);
       setActiveTab('annual');
-      setAnnualData(latestAnnual);
+      setAnnualData(annualWithPeriod);
       setMonthlyData(null);
       setUploadStatus({ type: 'success', message: successMessage });
     } catch (error) {
@@ -1766,13 +1797,17 @@ export default function App() {
       // 1. 연간계획서 목표 조회
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData, promptTemplates.annual);
+        currentAnnual = normalizeAnnualPlanData(
+          await generateAnnualPlan(selectedStudent, toneToUse, selectedStudent.referenceData, promptTemplates.annual),
+          selectedStudent
+        );
         setAnnualData(currentAnnual);
       }
 
       const monthlyGoal = currentAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
 
       const monthly = await generateMonthlyJournal(studentWithDates, selectedMonth, monthlyGoal, toneToUse, selectedStudent.referenceData, promptTemplates.monthly);
+      monthly.therapyPeriod = getTherapyPeriodForMonthly(currentAnnual);
 
       // AI가 반환한 세션 날짜를 반드시 실제 결제 날짜로 교체
       const currentStudentInfo = studentInfos.find(info => info.name === selectedStudent.name);
@@ -1830,9 +1865,10 @@ export default function App() {
       setUploadStatus({ type: monthlyPayRecords.length > 0 ? 'success' : 'error', message: msg });
     } catch (error: any) {
       console.error("Draft generation failed:", error);
-      const fallbackAnnual = annualData || buildFallbackAnnualPlan(selectedStudent);
+      const fallbackAnnual = annualData ? normalizeAnnualPlanData(annualData, selectedStudent) : buildFallbackAnnualPlan(selectedStudent);
       const fallbackGoal = fallbackAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       const fallbackMonthly = buildFallbackMonthlyJournal(selectedStudent, selectedMonth, monthlyPayRecords, paymentDates, fallbackGoal);
+      fallbackMonthly.therapyPeriod = getTherapyPeriodForMonthly(fallbackAnnual);
 
       if (!annualData) {
         setAnnualData(fallbackAnnual);
@@ -1860,7 +1896,10 @@ export default function App() {
     try {
       let currentAnnual = annualData;
       if (!currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual);
+        currentAnnual = normalizeAnnualPlanData(
+          await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual),
+          selectedStudent
+        );
         setAnnualData(currentAnnual);
       }
 
@@ -1899,6 +1938,7 @@ export default function App() {
           monthly = buildFallbackMonthlyJournal(selectedStudent, month, records, paddedDates, monthlyGoal);
           usedFallback = true;
         }
+        monthly.therapyPeriod = getTherapyPeriodForMonthly(currentAnnual);
 
         const maxSessions = Math.max(records.length, monthly.sessions.length, 4);
         monthly.sessions = Array.from({ length: maxSessions }).map((_, idx) => {
@@ -2106,7 +2146,7 @@ export default function App() {
           try {
             const parsedDraft = JSON.parse(localDraft);
             if (window.confirm('작성 중이던 연간계획서가 있습니다. 이어서 작성하시겠습니까?\n(취소 시 저장된 버전 또는 새 양식을 불러옵니다)')) {
-              setAnnualData(parsedDraft);
+              setAnnualData(normalizeAnnualPlanData(parsedDraft as AnnualPlanData, student));
               setIsEditing(true); // 바로 편집 모드로 전환
               setIsLoading(false);
               return;
@@ -2119,7 +2159,7 @@ export default function App() {
         }
 
         if (savedAnnual) {
-          setAnnualData(savedAnnual);
+          setAnnualData(normalizeAnnualPlanData(savedAnnual, student));
           setIsLoading(false);
           return;
         }
@@ -2152,7 +2192,7 @@ export default function App() {
           // Also try to load annual if not present (needed for goals context)
           if (!annualData) {
             const annualDoc = await getDoc(doc(db, 'annual_plans', student.name));
-            if (annualDoc.exists()) setAnnualData(annualDoc.data() as AnnualPlanData);
+            if (annualDoc.exists()) setAnnualData(normalizeAnnualPlanData(annualDoc.data() as AnnualPlanData, student));
           }
 
           setIsLoading(false);
@@ -2162,17 +2202,7 @@ export default function App() {
 
       // Firebase에 저장된 데이터가 없는 경우 → 빈 양식을 바로 표시 (AI 자동 생성 안 함)
       if (activeTab === 'annual') {
-        const emptyAnnual: AnnualPlanData = {
-          currentLevel: ['', ''],
-          longTermGoals: ['', ''],
-          monthlyGoals: Array.from({ length: 12 }).map((_, i) => ({
-            month: i < 10 ? i + 3 : i - 9,
-            goal: '',
-            content: '',
-            area: ''
-          }))
-        };
-        setAnnualData(emptyAnnual);
+        setAnnualData(createEmptyAnnualPlan(student));
         setIsEditing(true);
       } else {
         // formatSessionDate 는 컴포넌트 레벨에서 공유 (student.name 전달)
@@ -2196,7 +2226,7 @@ export default function App() {
         const emptyMonthly: MonthlyJournalData = {
           currentLevel: '',
           monthlyGoal: '',
-          therapyPeriod: `${selectedYear}.3.~`,
+          therapyPeriod: getTherapyPeriodForMonthly(annualData),
           sessions: monthlyRecords.length > 0
             ? monthlyRecords.map(r => ({
                 date: formatSessionDate(r.transactionDate, r.transactionTime, student.name),
@@ -2261,9 +2291,12 @@ export default function App() {
 
     try {
       // 1. Ensure Annual Data exists only when the output actually includes it.
-      let currentAnnual = annualData;
+      let currentAnnual = annualData ? normalizeAnnualPlanData(annualData, selectedStudent) : null;
       if (options.includeAnnual && !currentAnnual) {
-        currentAnnual = await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual);
+        currentAnnual = normalizeAnnualPlanData(
+          await generateAnnualPlan(selectedStudent, journalTone, selectedStudent.referenceData, promptTemplates.annual),
+          selectedStudent
+        );
         setAnnualData(currentAnnual);
       }
 
@@ -2340,13 +2373,17 @@ export default function App() {
           }
         }
 
+        if (mData) {
+          mData.therapyPeriod = mData.therapyPeriod || getTherapyPeriodForMonthly(currentAnnual);
+        }
+
         if (mData && mData.sessions) {
-            const sessionDates = new Set(mData.sessions.map(s => s.date));
-            const missingDates = filteredDates.filter(d => !sessionDates.has(d));
-            if (missingDates.length > 0) {
-              const mockMissing = generateMockSessions(missingDates, studentWithFilteredDates.treatmentArea, monthlyGoal);
-              mData.sessions = [...mData.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
-            }
+          const sessionDates = new Set(mData.sessions.map(s => s.date));
+          const missingDates = filteredDates.filter(d => !sessionDates.has(d));
+          if (missingDates.length > 0) {
+            const mockMissing = generateMockSessions(missingDates, studentWithFilteredDates.treatmentArea, monthlyGoal);
+            mData.sessions = [...mData.sessions, ...mockMissing].sort((a, b) => a.date.localeCompare(b.date));
+          }
         }
 
         multiMonthData.push({ month: monthNum, year: sy, data: mData });

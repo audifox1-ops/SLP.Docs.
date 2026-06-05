@@ -1,5 +1,6 @@
 import { saveAs } from 'file-saver';
 import { AnnualPlanData, DocumentTemplateSample, MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
+import { formatAnnualPlanPeriod, normalizeAnnualPlanPeriod } from './annualPlanPeriod';
 import { loadTemplateFileFromChunks } from '../services/templateFileService';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -18,6 +19,10 @@ export const MONTHLY_TEMPLATE_PLACEHOLDERS = [
   'disabilityType',
   'treatmentArea',
   'therapyPeriod',
+  'startYear',
+  'startMonth',
+  'endYear',
+  'endMonth',
   'therapistName',
   'scheduleDay',
   'scheduleTime',
@@ -56,6 +61,7 @@ export const ANNUAL_TEMPLATE_PLACEHOLDERS = [
 ] as const;
 
 export const ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES = [
+  'month1Year',
   'month1Goal',
   'month1Content',
   'month1Area',
@@ -73,6 +79,11 @@ export const COMBINED_TEMPLATE_PLACEHOLDERS = [
   'scheduleFrequency',
   'annualTitle',
   'annualYear',
+  'annualTherapyPeriod',
+  'annualStartYear',
+  'annualStartMonth',
+  'annualEndYear',
+  'annualEndMonth',
   'annualCurrentLevelText',
   'annualLongTermGoalsText',
   'annualMonthlyGoalsText',
@@ -203,9 +214,12 @@ export const createAnnualTemplateData = (
   annualData: AnnualPlanData,
   selectedYear: number
 ) => {
+  const annualPeriod = normalizeAnnualPlanPeriod(annualData, selectedYear);
   const monthlyGoals = annualData.monthlyGoals.map(goal => ({
+    year: String(goal.year || selectedYear),
     month: `${goal.month}월`,
     monthNumber: String(goal.month),
+    yearMonth: `${goal.year || selectedYear}.${goal.month}월`,
     goal: sanitizeTemplateValue(goal.goal),
     content: sanitizeTemplateValue(goal.content),
     area: sanitizeTemplateValue(goal.area || student.monthlyAreas?.[goal.month] || student.treatmentArea),
@@ -219,7 +233,11 @@ export const createAnnualTemplateData = (
     school: sanitizeTemplateValue(student.school),
     disabilityType: sanitizeTemplateValue(student.disabilityType),
     treatmentArea: sanitizeTemplateValue(student.treatmentArea),
-    therapyPeriod: `${selectedYear}.3.~`,
+    therapyPeriod: formatAnnualPlanPeriod(annualData, selectedYear),
+    startYear: String(annualPeriod.startYear),
+    startMonth: String(annualPeriod.startMonth),
+    endYear: String(annualPeriod.endYear),
+    endMonth: String(annualPeriod.endMonth),
     therapistName: sanitizeTemplateValue(student.therapistName),
     scheduleDay: sanitizeTemplateValue(student.schedule.day),
     scheduleTime: sanitizeTemplateValue(student.schedule.time),
@@ -235,6 +253,8 @@ export const createAnnualTemplateData = (
   Array.from({ length: MAX_FIXED_ANNUAL_MONTH_PLACEHOLDERS }).forEach((_, index) => {
     const monthNumber = index + 1;
     const goal = annualData.monthlyGoals.find(item => item.month === monthNumber);
+    data[`month${monthNumber}Year`] = goal?.year ? String(goal.year) : String(selectedYear);
+    data[`month${monthNumber}YearMonth`] = goal ? `${goal.year || selectedYear}.${goal.month}월` : '';
     data[`month${monthNumber}Goal`] = goal?.goal || '';
     data[`month${monthNumber}Content`] = goal?.content || '';
     data[`month${monthNumber}Area`] = goal?.area || student.monthlyAreas?.[monthNumber] || student.treatmentArea || '';
@@ -262,6 +282,11 @@ export const createCombinedTemplateData = (
     annualLongTermGoalsText: String(annualDataMap.longTermGoalsText || ''),
     annualMonthlyGoalsText: String(annualDataMap.monthlyGoalsText || ''),
     annualMonthlyGoals: annualDataMap.monthlyGoals as Record<string, string>[],
+    annualTherapyPeriod: String(annualDataMap.therapyPeriod || ''),
+    annualStartYear: String(annualDataMap.startYear || ''),
+    annualStartMonth: String(annualDataMap.startMonth || ''),
+    annualEndYear: String(annualDataMap.endYear || ''),
+    annualEndMonth: String(annualDataMap.endMonth || ''),
     monthlyTitle: String(monthlyDataMap.title || ''),
     monthlyYear: String(monthlyDataMap.year || ''),
     monthlyMonth: String(monthlyDataMap.month || ''),

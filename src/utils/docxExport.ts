@@ -1,6 +1,7 @@
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak } from 'docx';
 import { saveAs } from 'file-saver';
 import { Student, AnnualPlanData, MonthlyJournalData } from '../types';
+import { formatAnnualPlanPeriod } from './annualPlanPeriod';
 
 // 특수 문자 및 제어 문자 제거 (워드 파일 깨짐 방지)
 const sanitizeText = (text: string | undefined): string => {
@@ -25,6 +26,8 @@ const borders = {
 };
 
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
+  const therapyPeriod = formatAnnualPlanPeriod(annualData, selectedYear);
+
   return {
     properties: {
       page: {
@@ -72,7 +75,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
                 children: [
                   new Paragraph({ text: sanitizeText(`요일: ${selectedStudent.schedule.day}`) }),
                   new Paragraph({ text: sanitizeText(`시간: ${selectedStudent.schedule.time}`) }),
-                  new Paragraph({ text: sanitizeText(`시작: ${selectedYear}.3.`) }),
+                  new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
                 ], 
                 borders 
               }),
@@ -92,7 +95,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
           new TableRow({
-            children: ['월', '치료 영역', '단기 목표', '치료 내용'].map(text => 
+            children: ['년월', '치료 영역', '단기 목표', '치료 내용'].map(text =>
               new TableCell({
                 children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
                 shading: { fill: "F1F5F9" },
@@ -102,7 +105,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
           }),
           ...annualData.monthlyGoals.map(goal => new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(`${goal.month}월`), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.year ? `${goal.year}.${goal.month}월` : `${goal.month}월`), alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.area || selectedStudent.monthlyAreas?.[goal.month] || selectedStudent.treatmentArea), alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.goal) })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.content) })], borders }),

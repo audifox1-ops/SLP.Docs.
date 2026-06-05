@@ -27,7 +27,7 @@ Production AI calls use Vercel serverless functions at `/api/ai/status` and `/ap
 
 Combined annual/monthly, annual-only, and monthly-only sample templates are stored in Firestore chunks under `document_templates/{templateId}/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
 
-Use `combined_journal` when one sample file contains both the annual plan and monthly journal forms. Use `annual_plan` or `monthly_journal` only for separate templates. HWPX and DOCX templates are automatically filled during document download when they contain placeholders such as `{{studentName}}`, `{{annualCurrentLevelText}}`, `{{month1Goal}}`, `{{monthlyGoal}}`, or `{{session1Content}}`. Binary HWP files are stored for reference only; save the HWP in Hancom as HWPX before uploading if automatic form application is required.
+Use `combined_journal` when one sample file contains both the annual plan and monthly journal forms. Use `annual_plan` or `monthly_journal` only for separate templates. HWPX and DOCX templates are automatically filled during document download when they contain placeholders such as `{{studentName}}`, `{{therapyPeriod}}`, `{{startYear}}`, `{{endMonth}}`, `{{annualTherapyPeriod}}`, `{{annualCurrentLevelText}}`, `{{month1Goal}}`, `{{monthlyGoal}}`, or `{{session1Content}}`. Binary HWP files are stored for reference only; save the HWP in Hancom as HWPX before uploading if automatic form application is required.
 
 After changing `firestore.rules`, deploy the rules before testing template uploads in production:
 

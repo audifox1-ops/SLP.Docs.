@@ -67,9 +67,15 @@ export interface Student {
 }
 
 export interface AnnualPlanData {
+  startYear?: number;
+  startMonth?: number;
+  endYear?: number;
+  endMonth?: number;
+  therapyPeriod?: string;
   currentLevel: string[];
   longTermGoals: string[];
   monthlyGoals: {
+    year?: number;
     month: number;
     goal: string;
     content: string;

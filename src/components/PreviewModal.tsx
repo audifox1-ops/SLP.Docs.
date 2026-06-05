@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData } from '../types';
 import { AnnualPlan } from './AnnualPlan';
 import { MonthlyJournal } from './MonthlyJournal';
@@ -32,11 +32,33 @@ export const PreviewModal: React.FC<Props> = ({
   selectedMonth
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
+  const annualPageRef = useRef<HTMLDivElement>(null);
+  const monthlyPageRef = useRef<HTMLDivElement>(null);
+  const canPreviewCombined = Boolean(annualData && monthlyData);
+  const [previewMode, setPreviewMode] = useState<'single' | 'combined'>('single');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPreviewMode(canPreviewCombined ? 'combined' : 'single');
+  }, [isOpen, canPreviewCombined, activeTab]);
 
   if (!isOpen) return null;
 
+  const showCombinedPreview = previewMode === 'combined' && canPreviewCombined;
+  const pageStyle = {
+    width: '210mm',
+    minHeight: '297mm',
+    padding: '20mm',
+    margin: '0 auto'
+  };
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const scrollToPreviewPage = (page: 'annual' | 'monthly') => {
+    const target = page === 'annual' ? annualPageRef.current : monthlyPageRef.current;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleDocxDownload = async () => {
@@ -104,9 +126,11 @@ export const PreviewModal: React.FC<Props> = ({
     document.body.appendChild(fileDownload);
     fileDownload.href = url;
     
-    const docName = activeTab === 'annual' 
-      ? `${student.name}_연간계획서.${ext}`
-      : `${student.name}_${selectedMonth}월_치료일지.${ext}`;
+    const docName = showCombinedPreview
+      ? `${student.name}_${selectedMonth}월_연간월간.${ext}`
+      : activeTab === 'annual'
+        ? `${student.name}_연간계획서.${ext}`
+        : `${student.name}_${selectedMonth}월_치료일지.${ext}`;
       
     fileDownload.download = docName;
     fileDownload.click();
@@ -121,9 +145,45 @@ export const PreviewModal: React.FC<Props> = ({
         
         {/* 헤더 바 (인쇄 시 숨김) */}
         <div className="flex justify-between items-center p-4 border-b bg-slate-50 print:hidden">
-          <h2 className="text-lg font-bold text-slate-800">
-            문서 미리보기 및 출력
-          </h2>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">
+              문서 미리보기 및 출력
+            </h2>
+            {canPreviewCombined && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex rounded-lg bg-slate-200/70 p-1">
+                  <button
+                    onClick={() => setPreviewMode('single')}
+                    className={`px-3 py-1.5 rounded-md font-bold ${previewMode === 'single' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    현재 문서
+                  </button>
+                  <button
+                    onClick={() => setPreviewMode('combined')}
+                    className={`px-3 py-1.5 rounded-md font-bold ${previewMode === 'combined' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    연간+월간
+                  </button>
+                </div>
+                {showCombinedPreview && (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => scrollToPreviewPage('annual')}
+                      className="px-2.5 py-1.5 rounded-md border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      연간계획서
+                    </button>
+                    <button
+                      onClick={() => scrollToPreviewPage('monthly')}
+                      className="px-2.5 py-1.5 rounded-md border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      {selectedMonth}월 일지
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handleHwpDownload}
@@ -154,49 +214,67 @@ export const PreviewModal: React.FC<Props> = ({
 
         {/* 본문 영역 */}
         <div className="p-8 overflow-y-auto bg-slate-100 print:p-0 print:bg-white print:overflow-visible">
-          {/* A4 용지 스타일 컨테이너 */}
-          <div 
+          <div
             id="printable-area"
             ref={contentRef}
-            className="bg-white mx-auto shadow-lg print:shadow-none"
-            style={{ 
-              width: '210mm', 
-              minHeight: '297mm', 
-              padding: '20mm',
-              margin: '0 auto'
-            }}
+            className={showCombinedPreview ? 'space-y-8 print:space-y-0' : 'bg-white mx-auto shadow-lg print:shadow-none'}
+            style={showCombinedPreview ? undefined : pageStyle}
           >
-            {activeTab === 'annual' && annualData && (
-              <AnnualPlan
-                student={student}
-                data={annualData}
-                year={selectedYear}
-                isEditing={false}
-              />
-            )}
-            
-            {activeTab === 'monthly' && monthlyData && (
-              <MonthlyJournal
-                student={student}
-                data={monthlyData}
-                month={selectedMonth}
-                year={selectedYear}
-                isEditing={false}
-              />
-            )}
+            {showCombinedPreview && annualData && monthlyData ? (
+              <>
+                <div ref={annualPageRef} className="preview-page bg-white mx-auto shadow-lg print:shadow-none" style={pageStyle}>
+                  <AnnualPlan
+                    student={student}
+                    data={annualData}
+                    year={selectedYear}
+                    isEditing={false}
+                  />
+                </div>
+                <div ref={monthlyPageRef} className="preview-page bg-white mx-auto shadow-lg print:shadow-none" style={pageStyle}>
+                  <MonthlyJournal
+                    student={student}
+                    data={monthlyData}
+                    month={selectedMonth}
+                    year={selectedYear}
+                    isEditing={false}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                {activeTab === 'annual' && annualData && (
+                  <AnnualPlan
+                    student={student}
+                    data={annualData}
+                    year={selectedYear}
+                    isEditing={false}
+                  />
+                )}
 
-            {activeTab === 'annual' && !annualData && (
-              <div className="text-center text-slate-500 py-20">
-                연간계획서 데이터가 없습니다. 먼저 생성해주세요.
-              </div>
-            )}
-            {activeTab === 'monthly' && !monthlyData && (
-              <div className="text-center text-slate-500 py-20">
-                월간일지 데이터가 없습니다. 먼저 생성해주세요.
-              </div>
-            )}
+                  {activeTab === 'monthly' && monthlyData && (
+                    <MonthlyJournal
+                      student={student}
+                      data={monthlyData}
+                      month={selectedMonth}
+                      year={selectedYear}
+                      isEditing={false}
+                    />
+                  )}
+
+                  {activeTab === 'annual' && !annualData && (
+                    <div className="text-center text-slate-500 py-20">
+                      연간계획서 데이터가 없습니다. 먼저 생성해주세요.
+                    </div>
+                  )}
+                  {activeTab === 'monthly' && !monthlyData && (
+                    <div className="text-center text-slate-500 py-20">
+                      월간일지 데이터가 없습니다. 먼저 생성해주세요.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
       </div>
     </div>

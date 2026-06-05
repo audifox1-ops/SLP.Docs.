@@ -1,5 +1,6 @@
 import React from 'react';
 import { Student, AnnualPlanData } from '../types';
+import { formatAnnualPlanPeriod, normalizeAnnualPlanPeriod, updateAnnualPlanPeriod } from '../utils/annualPlanPeriod';
 
 interface Props {
   student: Student;
@@ -10,8 +11,23 @@ interface Props {
 }
 
 export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, onUpdate }) => {
+  const annualPeriod = normalizeAnnualPlanPeriod(data, year);
+  const yearOptions = Array.from(new Set([
+    year - 1,
+    year,
+    year + 1,
+    year + 2,
+    annualPeriod.startYear,
+    annualPeriod.endYear
+  ])).sort((a, b) => a - b);
+  const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+
   const handleChange = (field: keyof AnnualPlanData, value: any) => {
     if (onUpdate) onUpdate({ ...data, [field]: value });
+  };
+
+  const handlePeriodChange = (field: 'startYear' | 'startMonth' | 'endYear' | 'endMonth', value: number) => {
+    if (onUpdate) onUpdate(updateAnnualPlanPeriod(data, year, student, { [field]: value }));
   };
 
   const handleMonthlyChange = (idx: number, field: string, value: any) => {
@@ -73,7 +89,48 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                 <tbody className="text-[0.65rem]">
                   <tr>
                     <td className="p-1 border-b border-r border-black w-16">치료 기간</td>
-                    <td className="p-1 border-b border-black font-bold">{year}.3.~</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {isEditing ? (
+                        <div className="grid grid-cols-2 gap-1 text-[0.65rem]">
+                          <label className="flex items-center gap-1">
+                            <span className="text-slate-500 font-bold">시작</span>
+                            <select
+                              className="min-w-0 flex-1 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
+                              value={annualPeriod.startYear}
+                              onChange={(e) => handlePeriodChange('startYear', Number(e.target.value))}
+                            >
+                              {yearOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                            <select
+                              className="w-14 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
+                              value={annualPeriod.startMonth}
+                              onChange={(e) => handlePeriodChange('startMonth', Number(e.target.value))}
+                            >
+                              {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <span className="text-slate-500 font-bold">종료</span>
+                            <select
+                              className="min-w-0 flex-1 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
+                              value={annualPeriod.endYear}
+                              onChange={(e) => handlePeriodChange('endYear', Number(e.target.value))}
+                            >
+                              {yearOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                            <select
+                              className="w-14 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
+                              value={annualPeriod.endMonth}
+                              onChange={(e) => handlePeriodChange('endMonth', Number(e.target.value))}
+                            >
+                              {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      ) : (
+                        formatAnnualPlanPeriod(data, year)
+                      )}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black">치료사</td>
@@ -140,7 +197,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
         <table className="w-full border-collapse text-[0.75rem]">
           <thead>
             <tr>
-              <th className="border-b border-r border-black p-1 w-10 text-center">월</th>
+              <th className="border-b border-r border-black p-1 w-16 text-center">년월</th>
               <th className="border-b border-r border-black p-1 text-center">단기 목표(월 목표)</th>
               <th className="border-b border-r border-black p-1 text-center">치료 내용</th>
               <th className="border-b border-black p-1 w-14 text-center">비고</th>
@@ -149,7 +206,9 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
           <tbody>
             {data.monthlyGoals.map((goal, idx) => (
               <tr key={idx} className={isEditing ? 'align-top' : 'h-8'}>
-                <td className="border-b border-r border-black p-1 text-center font-bold">{goal.month}월</td>
+                <td className="border-b border-r border-black p-1 text-center font-bold">
+                  {goal.year ? `${goal.year}.${goal.month}월` : `${goal.month}월`}
+                </td>
                 <td className="border-b border-r border-black p-1 px-2">
                   {isEditing ? (
                     <textarea

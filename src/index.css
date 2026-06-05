@@ -63,8 +63,16 @@
     thead {
       display: table-header-group;
     }
+    .preview-page {
+      break-after: page;
+      page-break-after: always;
+    }
+    .preview-page:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
+    }
   }
-}
 
 body {
   @apply bg-bg-theme text-text-main font-sans antialiased;
