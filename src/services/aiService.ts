@@ -34,11 +34,61 @@ type AiErrorResponse = {
   error?: {
     code?: string;
     message?: string;
+    retryAfterSeconds?: number;
     userMessage?: string;
   };
 };
 
+type AiRequestError = Error & {
+  status?: number;
+  code?: string;
+  retryAfterSeconds?: number;
+};
+
+const DEFAULT_QUOTA_COOLDOWN_SECONDS = 60;
+
+let quotaCooldownUntilMs = 0;
+
+const getQuotaCooldownSeconds = () => (
+  Math.max(0, Math.ceil((quotaCooldownUntilMs - Date.now()) / 1000))
+);
+
+const createAiRequestError = (
+  message: string,
+  status?: number,
+  code?: string,
+  retryAfterSeconds?: number
+) => {
+  const error = new Error(message) as AiRequestError;
+  error.status = status;
+  error.code = code;
+  error.retryAfterSeconds = retryAfterSeconds;
+  return error;
+};
+
+const rememberQuotaCooldown = (retryAfterSeconds?: number) => {
+  const seconds = Math.max(retryAfterSeconds || DEFAULT_QUOTA_COOLDOWN_SECONDS, 1);
+  quotaCooldownUntilMs = Math.max(quotaCooldownUntilMs, Date.now() + seconds * 1000);
+  return seconds;
+};
+
+const isGeminiQuotaError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  ((error as AiRequestError).status === 429 || (error as AiRequestError).code === 'GEMINI_QUOTA_EXCEEDED')
+);
+
 async function generateJsonFromServer<T>(prompt: string): Promise<T> {
+  const remainingCooldown = getQuotaCooldownSeconds();
+  if (remainingCooldown > 0) {
+    throw createAiRequestError(
+      `Gemini API 할당량 초과로 ${remainingCooldown}초 후 다시 시도할 수 있습니다.`,
+      429,
+      'GEMINI_QUOTA_EXCEEDED',
+      remainingCooldown
+    );
+  }
+
   const response = await fetch('/api/ai/generate', {
     method: 'POST',
     headers: {
@@ -50,14 +100,19 @@ async function generateJsonFromServer<T>(prompt: string): Promise<T> {
   const payload = await response.json().catch(() => null) as ({ text?: string } & AiErrorResponse) | null;
 
   if (payload?.error) {
+    const retryAfterSeconds =
+      payload.error.retryAfterSeconds ||
+      Number(response.headers.get('Retry-After')) ||
+      undefined;
+    const effectiveRetryAfterSeconds =
+      payload.error.code === 'GEMINI_QUOTA_EXCEEDED'
+        ? rememberQuotaCooldown(retryAfterSeconds)
+        : retryAfterSeconds;
     const message =
       payload.error.userMessage ||
       payload.error.message ||
       `AI 생성 요청이 실패했습니다. (${payload.error.code || response.status})`;
-    const error = new Error(message) as Error & { status?: number; code?: string };
-    error.status = response.status;
-    error.code = payload.error.code;
-    throw error;
+    throw createAiRequestError(message, response.status, payload.error.code, effectiveRetryAfterSeconds);
   }
 
   if (!response.ok) {
@@ -147,7 +202,7 @@ ${referenceData.substring(0, 10000)}
 
     return generateJsonFromServer<AnnualPlanData>(prompt);
   } catch (error) {
-    console.error("AI Error:", error);
+    if (!isGeminiQuotaError(error)) console.error("AI Error:", error);
     throw error;
   }
 }
@@ -241,7 +296,7 @@ ${referenceData.substring(0, 10000)}
 
     return generateJsonFromServer<MonthlyJournalData>(prompt);
   } catch (error) {
-    console.error("AI Error:", error);
+    if (!isGeminiQuotaError(error)) console.error("AI Error:", error);
     throw error;
   }
 }

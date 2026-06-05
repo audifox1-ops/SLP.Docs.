@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
+const QUOTA_RETRY_AFTER_SECONDS = 60;
 
 export async function checkGeminiStatus() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -103,6 +104,7 @@ function normalizeGeminiError(error) {
       status: 429,
       code: 'GEMINI_QUOTA_EXCEEDED',
       message: rawMessage,
+      retryAfterSeconds: QUOTA_RETRY_AFTER_SECONDS,
       userMessage: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도하거나 API 결제/할당량 설정을 확인해 주세요.'
     };
   }

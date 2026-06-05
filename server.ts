@@ -8,6 +8,8 @@ import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
+const QUOTA_RETRY_AFTER_SECONDS = 60;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -70,7 +72,7 @@ async function startServer() {
     const model = req.body?.model || 'gemini-2.5-flash-lite';
 
     if (!apiKey) {
-      return res.json({
+      return res.status(500).json({
         error: {
           status: 500,
           code: 'MISSING_GEMINI_API_KEY',
@@ -104,7 +106,10 @@ async function startServer() {
     } catch (error) {
       const details = normalizeGeminiError(error);
       console.error('Gemini API Error:', details);
-      res.json({ error: details });
+      if (details.retryAfterSeconds) {
+        res.setHeader('Retry-After', String(details.retryAfterSeconds));
+      }
+      res.status(details.status || 500).json({ error: details });
     }
   });
 
@@ -168,6 +173,7 @@ function normalizeGeminiError(error: unknown) {
       status: 429,
       code: 'GEMINI_QUOTA_EXCEEDED',
       message: rawMessage,
+      retryAfterSeconds: QUOTA_RETRY_AFTER_SECONDS,
       userMessage: 'Gemini API 할당량이 초과되었습니다. 잠시 후 다시 시도하거나 API 결제/할당량 설정을 확인해 주세요.'
     };
   }

@@ -121,3 +121,127 @@ Verifiers:
 - ab_gate npm_audit_vulnerability_count 8 -> 1 adopted
 - ab_gate npm_audit_moderate_count 6 -> 0 adopted
 Next: Full xlsx remediation remains: replace npm xlsx or adopt a maintained patched SheetJS distribution while preserving XLS/XLSX upload behavior
+
+## 2026-06-06 Sample Template Form Sync
+
+Objective:
+- Uploaded sample forms must visibly and functionally affect the document form output path.
+
+Current issue found:
+- The app stored uploaded sample templates, and downloads could use dedicated annual/monthly templates.
+- A combined sample template was not shown as the active annual/monthly form source in the on-screen document area.
+- Single annual/monthly preview downloads did not fall back to the uploaded combined sample template.
+
+Change:
+- Treat `combined_journal` as the fallback sample template for annual and monthly outputs when a dedicated annual/monthly sample is not uploaded.
+- Show the combined sample template banner in the annual/monthly form area as "통합 샘플 양식 · 연간 폼 적용" or "통합 샘플 양식 · 월간 폼 적용".
+- Make PreviewModal single annual/monthly downloads use the combined sample template when no dedicated sample exists.
+
+Verification:
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Completion audit:
+- Upload path: `document_templates/combined_journal`, `annual_plan`, and `monthly_journal` still store uploaded samples through Firestore chunks.
+- Form/output sync: a combined sample now appears as the effective annual/monthly sample source when no dedicated sample exists.
+- Preview/download sync: PreviewModal now uses the combined sample for single annual/monthly downloads when no dedicated annual/monthly sample exists.
+
+## 2026-06-06 Gemini 429 Handling
+
+Objective:
+- Avoid repeated `/api/ai/generate` quota calls and noisy red console logs when Gemini returns 429 quota exhaustion.
+
+Current issue found:
+- Production API correctly returned 429 for quota exhaustion, but repeated UI actions could immediately call the same endpoint again.
+- Local `server.ts` returned error payloads without matching HTTP error status.
+- App-level generation handlers logged quota failures with `console.error`, creating noisy "generation failed" console errors even when fallback drafts were generated.
+
+Change:
+- Add `Retry-After` metadata for Gemini quota errors in serverless and local API handlers.
+- Make local `server.ts` return the normalized HTTP status for AI errors.
+- Add client-side quota cooldown so immediate repeated generation attempts do not hit `/api/ai/generate` again.
+- Guard AI generation handlers/buttons while generation is already in progress.
+- Log quota failures with `console.warn` while preserving `console.error` for unexpected failures.
+
+Verification:
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `curl /api/health`: HTTP 200.
+- `curl -X POST /api/ai/generate` with an empty prompt: HTTP 400 with structured error JSON.
+
+Completion audit:
+- 429 response handling: serverless and local API now attach `retryAfterSeconds`/`Retry-After` for quota errors.
+- Duplicate request prevention: client keeps a quota cooldown after `GEMINI_QUOTA_EXCEEDED` and blocks immediate repeated `/api/ai/generate` calls.
+- UI prevention: AI generation controls are disabled while generation or batch generation is already running.
+- Console noise: known quota failures are logged as warnings, while unexpected generation failures remain errors.
+
+## 2026-06-06 Default Chayunwoo Sample Form
+
+Objective:
+- The built-in annual plan and monthly journal forms should match the uploaded sample file `치료기관 연간계획서 및 일지 양식-차윤우25.6~26.6.hwp` without requiring the user to upload the sample each time.
+
+Sample structure extracted from local HWP:
+- Annual title: `2025. 교육청 치료지원(마중물) 대상 연간 계획서`
+- Annual info table: `학생명 / 생년월일 / 소속 학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`
+- Annual schedule block: `치료 기간 / 치료사 / 복지부 바우처 이용 영역 / 요일 / 시간 / 횟수`
+- Annual plan table: `월 / 단기 목표(월 목표) / 치료 내용 / 비고`
+- Monthly title: `2025. 교육청 치료지원(마중물) 대상 개별 치료 일지(6월)`
+- Monthly info table: `학생명 / 생년월일 / 소속학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`
+
+Change:
+- Update the default AnnualPlan React form to include `치료 영역`, `복지부 바우처 이용 영역`, and `횟수`.
+- Keep the default MonthlyJournal form aligned with the sample and normalize the frequency display.
+- Update default DOCX export sections to use the same annual/monthly sample field structure.
+
+Verification:
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Completion audit:
+- Annual React form now has the sample's six-column info table, including `치료 영역` and nested schedule rows for `복지부 바우처 이용 영역` and `횟수`.
+- Monthly React form keeps the sample's six-column info table and now normalizes `횟수` display.
+- Default DOCX export now mirrors the sample's annual plan table columns and monthly title/schedule structure.
+## 2026-06-05T22:40:19Z 2026-06-06-payment-dates-monthly-form
+
+Status: running
+Summary: Started monthly payment-history/date-sync form cycle
+Metrics:
+- lock_acquired: 1.0
+Verifiers:
+- project_probe detected node stack with npm run lint and npm run build
+Next: Inspect App monthly payment helpers and MonthlyJournal render, then implement payment-history rows and editable session-count controls
+## 2026-06-05T22:46:49Z 2026-06-06-payment-dates-monthly-form
+
+Status: completed
+Summary: Adopted monthly payment-history display, payment-date sync control, editable monthly session rows, and default DOCX payment-history export
+Decision: adopt
+Metrics:
+- default_session_count: 4.0
+- payment_history_table_count: 2.0
+Changed:
+- 12-research/monthly-payment-form-2026-06-06.md
+- src/App.tsx
+- src/components/MonthlyJournal.tsx
+- src/components/PreviewModal.tsx
+- src/utils/docxExport.ts
+- working.md
+- .autoresearch/experiments.jsonl
+Verifiers:
+- npm run lint passed
+- npm run build passed
+- git diff --check passed
+- curl http://localhost:3000/api/health returned {"status":"ok"}
+- npm audit --omit=dev --audit-level=moderate still fails on xlsx high severity with no fix available
+Next: User can test http://localhost:3000 by selecting a student/month with uploaded payment records, clicking edit, and using 결제일 기준 맞추기 if needed
+## 2026-06-05T22:48:13Z 2026-06-06-payment-dates-monthly-form-final
+
+Status: completed
+Summary: Final verifier refresh after document wording trim
+Decision: adopt
+Changed:
+- src/components/MonthlyJournal.tsx
+- working.md
+Verifiers:
+- npm run lint passed
+- npm run build passed
+Next: Ready for user testing at http://localhost:3000

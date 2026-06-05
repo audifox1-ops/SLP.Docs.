@@ -1,6 +1,6 @@
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, PageBreak } from 'docx';
 import { saveAs } from 'file-saver';
-import { Student, AnnualPlanData, MonthlyJournalData } from '../types';
+import { Student, AnnualPlanData, MonthlyJournalData, PaymentRecord } from '../types';
 import { formatAnnualPlanPeriod } from './annualPlanPeriod';
 
 // 특수 문자 및 제어 문자 제거 (워드 파일 깨짐 방지)
@@ -23,6 +23,33 @@ const borders = {
   bottom: createBorder(),
   left: createBorder(),
   right: createBorder(),
+};
+
+const formatScheduleFrequency = (value?: string) => {
+  const text = value?.trim() || '';
+  if (!text) return '';
+  return text.includes('회') ? text : `주 ${text} 회`;
+};
+
+const formatPaymentDate = (value?: string) => {
+  const text = String(value || '').trim();
+  const match = text.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
+  if (!match) return sanitizeText(text || '-');
+  const yearPrefix = match[1] ? `${match[1].length === 2 ? `20${match[1]}` : match[1]}.` : '';
+  return sanitizeText(`${yearPrefix}${Number(match[2])}.${Number(match[3])}`);
+};
+
+const formatPaymentTime = (value?: string) => {
+  const text = String(value || '').trim();
+  const match = text.match(/(\d{1,2}):(\d{2})/);
+  return sanitizeText(match ? `${match[1].padStart(2, '0')}:${match[2]}` : text || '-');
+};
+
+const formatPaymentAmount = (value: PaymentRecord['amount']) => {
+  if (value === undefined || value === null || value === '') return '-';
+  const numeric = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(numeric)) return sanitizeText(String(value));
+  return sanitizeText(`${new Intl.NumberFormat('ko-KR').format(numeric)}원`);
 };
 
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
@@ -73,9 +100,12 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
               new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ 
                 children: [
+                  new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
+                  new Paragraph({ text: sanitizeText(`치료사: ${selectedStudent.therapistName}`) }),
+                  new Paragraph({ text: sanitizeText(`복지부 바우처 이용 영역: ${selectedStudent.voucherArea || selectedStudent.treatmentArea}`) }),
                   new Paragraph({ text: sanitizeText(`요일: ${selectedStudent.schedule.day}`) }),
                   new Paragraph({ text: sanitizeText(`시간: ${selectedStudent.schedule.time}`) }),
-                  new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
+                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(selectedStudent.schedule.frequency)}`) }),
                 ], 
                 borders 
               }),
@@ -95,7 +125,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
           new TableRow({
-            children: ['년월', '치료 영역', '단기 목표', '치료 내용'].map(text =>
+            children: ['월', '단기 목표(월 목표)', '치료 내용', '비고'].map(text =>
               new TableCell({
                 children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
                 shading: { fill: "F1F5F9" },
@@ -106,9 +136,9 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
           ...annualData.monthlyGoals.map(goal => new TableRow({
             children: [
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.year ? `${goal.year}.${goal.month}월` : `${goal.month}월`), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.area || selectedStudent.monthlyAreas?.[goal.month] || selectedStudent.treatmentArea), alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.goal) })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.content) })], borders }),
+              new TableCell({ children: [new Paragraph({ text: "" })], borders }),
             ],
           })),
         ],
@@ -117,7 +147,15 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
   };
 };
 
-export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData: MonthlyJournalData, selectedYear: number, selectedMonth: number) => {
+export const generateMonthlyWordSection = (
+  selectedStudent: Student,
+  monthlyData: MonthlyJournalData,
+  selectedYear: number,
+  selectedMonth: number,
+  paymentRecords: PaymentRecord[] = []
+) => {
+  const therapyPeriod = monthlyData.therapyPeriod || `${selectedYear}.3.~`;
+
   return {
     properties: {
       page: {
@@ -134,7 +172,7 @@ export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
-            text: sanitizeText(`${selectedYear}. 교육청 치료지원(마마중물) 대상 개별 치료 일지(${selectedMonth}월)`),
+            text: sanitizeText(`${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`),
             bold: true,
             size: 32,
           }),
@@ -162,8 +200,11 @@ export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData
               new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ 
                 children: [
+                  new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
+                  new Paragraph({ text: sanitizeText(`치료사: ${selectedStudent.therapistName}`) }),
                   new Paragraph({ text: sanitizeText(`요일: ${selectedStudent.schedule.day}`) }),
                   new Paragraph({ text: sanitizeText(`시간: ${selectedStudent.schedule.time}`) }),
+                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(selectedStudent.schedule.frequency)}`) }),
                 ], 
                 borders 
               }),
@@ -183,7 +224,7 @@ export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData
           }),
           new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "치료 목표", bold: true })] })], shading: { fill: "F1F5F9" }, borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `(${selectedMonth})월 치료 목표`, bold: true })] })], shading: { fill: "F1F5F9" }, borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(monthlyData.monthlyGoal) })], borders }),
             ],
           }),
@@ -194,7 +235,7 @@ export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
           new TableRow({
-            children: ['날짜', '치료 내용', '아동 반응', '비고'].map(text => 
+            children: ['날짜', '치료 내용', '아동 반응', '비고(부모 상담)'].map(text =>
               new TableCell({
                 children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
                 shading: { fill: "F1F5F9" },
@@ -210,6 +251,54 @@ export const generateMonthlyWordSection = (selectedStudent: Student, monthlyData
               new TableCell({ children: [new Paragraph({ text: sanitizeText(session.consultation) })], borders }),
             ],
           })),
+        ],
+      }),
+      new Paragraph({ text: "", spacing: { before: 200 } }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                children: [new Paragraph({ text: "엑셀 결제 이력(선택 월)", alignment: AlignmentType.CENTER })],
+                shading: { fill: "F1F5F9" },
+                borders,
+              }),
+              ...Array.from({ length: 5 }, () => new TableCell({
+                children: [new Paragraph({ text: "" })],
+                shading: { fill: "F1F5F9" },
+                borders,
+              })),
+            ],
+          }),
+          new TableRow({
+            children: ['회차', '결제일', '결제 시간', '치료 영역', '금액', '일지 날짜'].map(text =>
+              new TableCell({
+                children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
+                shading: { fill: "F1F5F9" },
+                borders,
+              })
+            ),
+          }),
+          ...(paymentRecords.length > 0
+            ? paymentRecords.map((record, idx) => new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: String(idx + 1), alignment: AlignmentType.CENTER })], borders }),
+                new TableCell({ children: [new Paragraph({ text: formatPaymentDate(record.transactionDate), alignment: AlignmentType.CENTER })], borders }),
+                new TableCell({ children: [new Paragraph({ text: formatPaymentTime(record.transactionTime), alignment: AlignmentType.CENTER })], borders }),
+                new TableCell({ children: [new Paragraph({ text: sanitizeText(record.treatmentArea || '-'), alignment: AlignmentType.CENTER })], borders }),
+                new TableCell({ children: [new Paragraph({ text: formatPaymentAmount(record.amount), alignment: AlignmentType.CENTER })], borders }),
+                new TableCell({ children: [new Paragraph({ text: sanitizeText(monthlyData.sessions[idx]?.date || ''), alignment: AlignmentType.CENTER })], borders }),
+              ],
+            }))
+            : [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "선택한 월에 업로드된 결제 이력이 없습니다.", alignment: AlignmentType.CENTER })], borders }),
+                  ...Array.from({ length: 5 }, () => new TableCell({ children: [new Paragraph({ text: "" })], borders })),
+                ],
+              }),
+            ]),
         ],
       }),
       new Paragraph({ text: "", spacing: { before: 200 } }),
@@ -234,7 +323,8 @@ export const exportMultiMonthDocs = async (
   multiMonthData: { month: number; year: number; data: MonthlyJournalData }[], 
   includeAnnual: boolean,
   startMonth: number,
-  endMonth: number
+  endMonth: number,
+  paymentRecordsByMonth: Record<string, PaymentRecord[]> = {}
 ) => {
   const sections = [];
 
@@ -243,7 +333,13 @@ export const exportMultiMonthDocs = async (
   }
 
   for (const item of multiMonthData) {
-    sections.push(generateMonthlyWordSection(selectedStudent, item.data, item.year, item.month));
+    sections.push(generateMonthlyWordSection(
+      selectedStudent,
+      item.data,
+      item.year,
+      item.month,
+      paymentRecordsByMonth[`${item.year}_${item.month}`] || []
+    ));
   }
 
   const doc = new Document({ sections });
@@ -266,10 +362,11 @@ export const createMonthlyDocxBlob = async (
   selectedStudent: Student,
   monthlyData: MonthlyJournalData,
   selectedYear: number,
-  selectedMonth: number
+  selectedMonth: number,
+  paymentRecords: PaymentRecord[] = []
 ) => {
   const doc = new Document({
-    sections: [generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth)],
+    sections: [generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth, paymentRecords)],
   });
   return Packer.toBlob(doc);
 };
@@ -279,12 +376,13 @@ export const createCombinedAnnualMonthlyDocxBlob = async (
   annualData: AnnualPlanData,
   monthlyData: MonthlyJournalData,
   selectedYear: number,
-  selectedMonth: number
+  selectedMonth: number,
+  paymentRecords: PaymentRecord[] = []
 ) => {
   const doc = new Document({
     sections: [
       generateAnnualWordSection(selectedStudent, annualData, selectedYear),
-      generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth),
+      generateMonthlyWordSection(selectedStudent, monthlyData, selectedYear, selectedMonth, paymentRecords),
     ],
   });
   return Packer.toBlob(doc);

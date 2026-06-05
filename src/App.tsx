@@ -89,6 +89,21 @@ const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error && error.message ? error.message : fallback
 );
 
+const isGeminiQuotaError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  ((error as { status?: number; code?: string }).status === 429 ||
+    (error as { status?: number; code?: string }).code === 'GEMINI_QUOTA_EXCEEDED')
+);
+
+const logGenerationError = (label: string, error: unknown) => {
+  if (isGeminiQuotaError(error)) {
+    console.warn(label, getErrorMessage(error, 'Gemini API 할당량이 초과되었습니다.'));
+    return;
+  }
+  console.error(label, error);
+};
+
 const getTemplateUploadErrorMessage = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   const text = message.toLowerCase();
@@ -121,6 +136,16 @@ const getTemplateBlobMimeType = (fileType: string) => {
   if (fileType === 'hwp') return 'application/x-hwp';
   return 'application/octet-stream';
 };
+
+const getTemplateApplyLabel = (template: DocumentTemplateSample) => (
+  template.applyMode === 'hwpx-template'
+    ? 'HWPX 자동 적용'
+    : template.applyMode === 'hwp-template'
+      ? 'HWP→HWPX 자동 적용'
+      : template.applyMode === 'docx-template'
+        ? 'DOCX 자동 적용'
+        : '참조용'
+);
 
 interface ExportFile {
   fileName: string;
@@ -1207,6 +1232,42 @@ export default function App() {
     return { rows, mismatchCount, paymentCount: payRecords.length, sessionCount: sessions.length };
   };
 
+  const createBlankMonthlySession = (): MonthlyJournalData['sessions'][number] => ({
+    date: '',
+    content: '',
+    reaction: '',
+    consultation: '가정 내에서의 연계 활동 및 지도 방법 안내함.'
+  });
+
+  const syncMonthlySessionsToPaymentRecords = () => {
+    if (!selectedStudent || !monthlyData) return;
+
+    const paymentRecords = getMonthlyPaymentRecords(selectedStudent.name);
+    const currentSessions = monthlyData.sessions || [];
+    const nextCount = Math.max(paymentRecords.length, currentSessions.length, 4);
+    const nextSessions = Array.from({ length: nextCount }, (_, idx) => {
+      const paymentRecord = paymentRecords[idx];
+      const currentSession = currentSessions[idx] || createBlankMonthlySession();
+
+      return {
+        ...currentSession,
+        date: paymentRecord
+          ? formatSessionDate(paymentRecord.transactionDate, paymentRecord.transactionTime || '', selectedStudent.name)
+          : currentSession.date || ''
+      };
+    });
+
+    setMonthlyData({ ...monthlyData, sessions: nextSessions });
+    setIsEditing(true);
+    setUploadStatus({
+      type: 'success',
+      message: paymentRecords.length > 0
+        ? `월간일지 날짜를 결제 기록 ${paymentRecords.length}건 기준으로 맞췄습니다.`
+        : '선택한 월의 결제 기록이 없어 기본 4회 행을 준비했습니다. 날짜는 직접 입력해 주세요.'
+    });
+    setTimeout(() => setUploadStatus(null), 4000);
+  };
+
   const getDocumentKey = (type: 'annual' | 'monthly' = activeTab) => {
     if (!selectedStudent) return '';
     return type === 'annual'
@@ -1763,7 +1824,7 @@ export default function App() {
     toneToUse: JournalTone = journalTone,
     successMessage = '연간계획서가 AI로 자동 생성되었습니다.'
   ) => {
-    if (!selectedStudent) return;
+    if (!selectedStudent || isLoading) return;
 
     setIsLoading(true);
     try {
@@ -1780,7 +1841,7 @@ export default function App() {
       setMonthlyData(null);
       setUploadStatus({ type: 'success', message: successMessage });
     } catch (error) {
-      console.error('Annual plan generation failed:', error);
+      logGenerationError('Annual plan generation failed:', error);
       const fallbackAnnual = buildFallbackAnnualPlan(selectedStudent);
       setActiveTab('annual');
       setAnnualData(fallbackAnnual);
@@ -1797,7 +1858,7 @@ export default function App() {
   };
 
   const handleGenerateDraft = async (toneToUse: JournalTone = journalTone) => {
-    if (!selectedStudent) return;
+    if (!selectedStudent || isLoading) return;
 
     setIsLoading(true);
     await runPreflightChecks();
@@ -1906,7 +1967,7 @@ export default function App() {
         : '가상 일지가 생성되었습니다. (결제 내역 없음 - 날짜 확인 후 저장하세요)';
       setUploadStatus({ type: monthlyPayRecords.length > 0 ? 'success' : 'error', message: msg });
     } catch (error: any) {
-      console.error("Draft generation failed:", error);
+      logGenerationError("Draft generation failed:", error);
       const fallbackAnnual = annualData ? normalizeAnnualPlanData(annualData, selectedStudent) : buildFallbackAnnualPlan(selectedStudent);
       const fallbackGoal = fallbackAnnual.monthlyGoals.find(g => g.month === selectedMonth)?.goal || "연간계획서에 목표가 설정되지 않았습니다.";
       const fallbackMonthly = buildFallbackMonthlyJournal(selectedStudent, selectedMonth, monthlyPayRecords, paymentDates, fallbackGoal);
@@ -1928,7 +1989,7 @@ export default function App() {
   };
 
   const handleBatchGenerateMonthly = async () => {
-    if (!selectedStudent) return;
+    if (!selectedStudent || isBatchGenerating || isLoading) return;
     setIsBatchGenerating(true);
     setShowBatchPanel(true);
 
@@ -1976,7 +2037,7 @@ export default function App() {
         try {
           monthly = await generateMonthlyJournal(studentWithDates, month, monthlyGoal, journalTone, selectedStudent.referenceData, promptTemplates.monthly);
         } catch (error) {
-          console.error(`Batch monthly generation failed for ${month}:`, error);
+          logGenerationError(`Batch monthly generation failed for ${month}:`, error);
           monthly = buildFallbackMonthlyJournal(selectedStudent, month, records, paddedDates, monthlyGoal);
           usedFallback = true;
         }
@@ -2004,7 +2065,7 @@ export default function App() {
 
       setUploadStatus({ type: 'success', message: '월별일지 일괄 생성이 완료되었습니다.' });
     } catch (error) {
-      console.error('Batch generation error:', error);
+      logGenerationError('Batch generation error:', error);
       setUploadStatus({ type: 'error', message: getErrorMessage(error, '월별일지 일괄 생성 중 오류가 발생했습니다.') });
     } finally {
       setIsBatchGenerating(false);
@@ -2483,8 +2544,10 @@ export default function App() {
       if (exportAction === 'download') {
         const combinedTemplateForExport = combinedTemplateSample || (!annualTemplateSample ? monthlyTemplateSample : null);
         const canUseCombinedTemplate = options.includeAnnual && currentAnnual && canApplyTemplateAutomatically(combinedTemplateForExport);
-        const canUseAnnualTemplate = options.includeAnnual && currentAnnual && canApplyTemplateAutomatically(annualTemplateSample);
-        const canUseMonthlyTemplate = canApplyTemplateAutomatically(monthlyTemplateSample);
+        const annualTemplateForExport = annualTemplateSample || combinedTemplateSample;
+        const monthlyTemplateForExport = monthlyTemplateSample || combinedTemplateSample;
+        const canUseAnnualTemplate = options.includeAnnual && currentAnnual && canApplyTemplateAutomatically(annualTemplateForExport);
+        const canUseMonthlyTemplate = canApplyTemplateAutomatically(monthlyTemplateForExport);
 
         if (canUseCombinedTemplate && combinedTemplateForExport && currentAnnual) {
           const files: ExportFile[] = [];
@@ -2510,9 +2573,9 @@ export default function App() {
           const notices = new Set<string>();
 
           if (options.includeAnnual && currentAnnual) {
-            if (canUseAnnualTemplate && annualTemplateSample) {
+            if (canUseAnnualTemplate && annualTemplateForExport) {
               const { blob, extension } = await createAnnualPlanTemplateBlob(
-                annualTemplateSample,
+                annualTemplateForExport,
                 selectedStudent,
                 currentAnnual,
                 startYear
@@ -2522,7 +2585,7 @@ export default function App() {
                 blob,
               });
             } else {
-              if (annualTemplateSample?.applyMode === 'hwp-template') {
+              if (annualTemplateForExport?.applyMode === 'hwp-template') {
                 notices.add('연간계획서 HWP 샘플을 HWPX로 변환하지 못해 기본 DOCX 양식으로 생성했습니다.');
               }
               files.push({
@@ -2533,9 +2596,9 @@ export default function App() {
           }
 
           for (const item of multiMonthData) {
-            if (canUseMonthlyTemplate && monthlyTemplateSample) {
+            if (canUseMonthlyTemplate && monthlyTemplateForExport) {
               const { blob, extension } = await createMonthlyJournalTemplateBlob(
-                monthlyTemplateSample,
+                monthlyTemplateForExport,
                 selectedStudent,
                 item.data,
                 item.year,
@@ -2546,12 +2609,18 @@ export default function App() {
                 blob,
               });
             } else {
-              if (monthlyTemplateSample?.applyMode === 'hwp-template') {
+              if (monthlyTemplateForExport?.applyMode === 'hwp-template') {
                 notices.add('월간일지 HWP 샘플을 HWPX로 변환하지 못해 기본 DOCX 양식으로 생성했습니다.');
               }
               files.push({
                 fileName: `${selectedStudent.name}_${item.year}_${item.month}월_치료일지.docx`,
-                blob: await createMonthlyDocxBlob(selectedStudent, item.data, item.year, item.month),
+                blob: await createMonthlyDocxBlob(
+                  selectedStudent,
+                  item.data,
+                  item.year,
+                  item.month,
+                  getGenericMonthlyPaymentRecords(selectedStudent.name, item.year, item.month)
+                ),
               });
             }
           }
@@ -2576,7 +2645,13 @@ export default function App() {
             });
             setTimeout(() => setUploadStatus(null), 5000);
           }
-          await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth);
+          const paymentRecordsByMonth = Object.fromEntries(
+            multiMonthData.map(item => [
+              `${item.year}_${item.month}`,
+              getGenericMonthlyPaymentRecords(selectedStudent.name, item.year, item.month)
+            ])
+          );
+          await exportMultiMonthDocs(selectedStudent, currentAnnual, multiMonthData, options.includeAnnual, startMonth, endMonth, paymentRecordsByMonth);
         }
         setExportAction(null);
       }
@@ -2609,6 +2684,9 @@ export default function App() {
   const monthlyDateCheck = activeTab === 'monthly' && selectedStudent && monthlyData
     ? buildMonthlyDateCheck()
     : null;
+  const selectedMonthlyPaymentRecords = activeTab === 'monthly' && selectedStudent
+    ? getMonthlyPaymentRecords(selectedStudent.name)
+    : [];
 
   const getDateCheckStatusClass = (status: string) => {
     if (status === 'match') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -2622,6 +2700,10 @@ export default function App() {
   const selectedMonthlySaved = Boolean(selectedDocStatus?.monthly?.[`${selectedYear}_${selectedMonth}`]);
   const selectedAnnualSaved = Boolean(selectedDocStatus?.annual);
   const getStudentDisplayName = (name: string) => privacyMode ? maskValue(name) : name;
+  const effectiveAnnualTemplate = annualTemplateSample || combinedTemplateSample;
+  const effectiveAnnualTemplateKind: DocumentTemplateKind = annualTemplateSample ? 'annual_plan' : 'combined_journal';
+  const effectiveMonthlyTemplate = monthlyTemplateSample || combinedTemplateSample;
+  const effectiveMonthlyTemplateKind: DocumentTemplateKind = monthlyTemplateSample ? 'monthly_journal' : 'combined_journal';
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
@@ -3056,6 +3138,7 @@ export default function App() {
                         <label className="text-xs font-bold text-blue-700 mr-2 uppercase tracking-wider">Tone</label>
                         <select
                           value={journalTone}
+                          disabled={isLoading || isBatchGenerating || isExporting}
                           onChange={async (e) => {
                             const newTone = e.target.value as JournalTone;
                             setJournalTone(newTone);
@@ -3197,7 +3280,10 @@ export default function App() {
                               setActiveTab('monthly');
                               if (!monthlyData || monthlyData.sessions.length === 0) handleGenerateDraft();
                             }}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-white border border-amber-300 text-amber-700 rounded-xl font-bold text-sm hover:bg-amber-50 transition-all"
+                            disabled={isLoading}
+                            className={`flex items-center gap-2 px-6 py-2.5 bg-white border border-amber-300 text-amber-700 rounded-xl font-bold text-sm transition-all ${
+                              isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-50'
+                            }`}
                           >
                             <Sparkles className="w-4 h-4" />
                             해당 월 일지 생성
@@ -3208,7 +3294,12 @@ export default function App() {
                       {activeTab === 'monthly' && (
                         <button
                           onClick={() => handleGenerateDraft()}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
+                          disabled={isLoading}
+                          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                            isLoading
+                              ? 'bg-slate-200 text-slate-500 cursor-not-allowed shadow-none'
+                              : 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20'
+                          }`}
                         >
                           <Sparkles className="w-4 h-4" />
                           AI로 자동 생성
@@ -3217,7 +3308,12 @@ export default function App() {
 
                       <button
                         onClick={() => setShowBatchPanel(prev => !prev)}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition-all shadow-lg shadow-purple-500/20"
+                        disabled={isLoading || isBatchGenerating}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg ${
+                          isLoading || isBatchGenerating
+                            ? 'bg-slate-200 text-slate-500 cursor-not-allowed shadow-none'
+                            : 'bg-purple-600 text-white hover:bg-purple-700 shadow-purple-500/20'
+                        }`}
                       >
                         <Layers3 className="w-4 h-4" />
                         월별 일괄 생성
@@ -3320,37 +3416,31 @@ export default function App() {
                         >
                           {activeTab === 'annual' && annualData && annualData.currentLevel ? (
                             <>
-                              {annualTemplateSample && (
+                              {effectiveAnnualTemplate && (
                                 <div className={`no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${isEditing ? 'max-w-none' : 'max-w-[210mm]'}`}>
                                   <div className="flex items-start gap-3 min-w-0">
                                     <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center flex-shrink-0">
                                       <FileText className="w-5 h-5 text-primary" />
                                     </div>
                                     <div className="min-w-0">
-                                      <div className="text-sm font-black text-text-main">연간계획서 샘플 양식</div>
+                                      <div className="text-sm font-black text-text-main">
+                                        {effectiveAnnualTemplateKind === 'combined_journal' ? '통합 샘플 양식 · 연간 폼 적용' : '연간계획서 샘플 양식'}
+                                      </div>
                                       <div className="text-xs text-text-muted truncate">
-                                        {annualTemplateSample.fileName} · {
-                                          annualTemplateSample.applyMode === 'hwpx-template'
-                                            ? 'HWPX 자동 적용'
-                                            : annualTemplateSample.applyMode === 'hwp-template'
-                                              ? 'HWP→HWPX 자동 적용'
-                                              : annualTemplateSample.applyMode === 'docx-template'
-                                                ? 'DOCX 자동 적용'
-                                                : '참조용'
-                                        }
+                                        {effectiveAnnualTemplate.fileName} · {getTemplateApplyLabel(effectiveAnnualTemplate)}
                                       </div>
                                     </div>
                                   </div>
                                   <div className="flex gap-2 flex-shrink-0">
                                     <button
-                                      onClick={() => handleOpenDocumentTemplate('annual_plan')}
+                                      onClick={() => handleOpenDocumentTemplate(effectiveAnnualTemplateKind)}
                                       className="px-3 py-2 rounded-xl bg-white border border-border-theme text-xs font-bold text-text-main hover:bg-bg-theme"
                                     >
                                       파일 열기
                                     </button>
                                     <button
                                       onClick={() => {
-                                        setActiveTemplateKind('annual_plan');
+                                        setActiveTemplateKind(effectiveAnnualTemplateKind);
                                         setShowTemplateModal(true);
                                       }}
                                       className="px-3 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-dark"
@@ -3370,37 +3460,31 @@ export default function App() {
                             </>
                           ) : activeTab === 'monthly' && monthlyData && monthlyData.sessions ? (
                             <>
-                              {monthlyTemplateSample && (
+                              {effectiveMonthlyTemplate && (
                                 <div className={`no-print mb-5 bg-white border border-border-theme rounded-2xl shadow-sm mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${isEditing ? 'max-w-none' : 'max-w-[210mm]'}`}>
                                   <div className="flex items-start gap-3 min-w-0">
                                     <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center flex-shrink-0">
                                       <FileText className="w-5 h-5 text-primary" />
                                     </div>
                                     <div className="min-w-0">
-                                      <div className="text-sm font-black text-text-main">월간일지 샘플 양식</div>
+                                      <div className="text-sm font-black text-text-main">
+                                        {effectiveMonthlyTemplateKind === 'combined_journal' ? '통합 샘플 양식 · 월간 폼 적용' : '월간일지 샘플 양식'}
+                                      </div>
                                       <div className="text-xs text-text-muted truncate">
-                                        {monthlyTemplateSample.fileName} · {
-                                          monthlyTemplateSample.applyMode === 'hwpx-template'
-                                            ? 'HWPX 자동 적용'
-                                            : monthlyTemplateSample.applyMode === 'hwp-template'
-                                              ? 'HWP→HWPX 자동 적용'
-                                              : monthlyTemplateSample.applyMode === 'docx-template'
-                                                ? 'DOCX 보조 자동 적용'
-                                                : '참조용'
-                                        }
+                                        {effectiveMonthlyTemplate.fileName} · {getTemplateApplyLabel(effectiveMonthlyTemplate)}
                                       </div>
                                     </div>
                                   </div>
                                   <div className="flex gap-2 flex-shrink-0">
                                     <button
-                                      onClick={() => handleOpenDocumentTemplate('monthly_journal')}
+                                      onClick={() => handleOpenDocumentTemplate(effectiveMonthlyTemplateKind)}
                                       className="px-3 py-2 rounded-xl bg-white border border-border-theme text-xs font-bold text-text-main hover:bg-bg-theme"
                                     >
                                       파일 열기
                                     </button>
                                     <button
                                       onClick={() => {
-                                        setActiveTemplateKind('monthly_journal');
+                                        setActiveTemplateKind(effectiveMonthlyTemplateKind);
                                         setShowTemplateModal(true);
                                       }}
                                       className="px-3 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-dark"
@@ -3467,6 +3551,9 @@ export default function App() {
                                 year={selectedYear}
                                 isEditing={isEditing}
                                 onUpdate={(newData) => setMonthlyData(newData)}
+                                paymentRecords={selectedMonthlyPaymentRecords}
+                                formatPaymentSessionDate={(record) => formatSessionDate(record.transactionDate, record.transactionTime || '', selectedStudent.name)}
+                                onSyncPaymentDates={syncMonthlySessionsToPaymentRecords}
                               />
                             </>
                           ) : (
@@ -3522,6 +3609,7 @@ export default function App() {
         monthlyTemplate={monthlyTemplateSample}
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
+        paymentRecords={selectedMonthlyPaymentRecords}
       />
 
       <MonthlyTemplateModal
@@ -3695,7 +3783,13 @@ export default function App() {
             )}
             {exportMonthlyDataList.map((item, idx) => (
               <div key={`print-${idx}`} className="print-page-break">
-                <MonthlyJournal student={displayStudent || selectedStudent} data={item.data} month={item.month} year={item.year} />
+                <MonthlyJournal
+                  student={displayStudent || selectedStudent}
+                  data={item.data}
+                  month={item.month}
+                  year={item.year}
+                  paymentRecords={getGenericMonthlyPaymentRecords(selectedStudent.name, item.year, item.month)}
+                />
               </div>
             ))}
           </div>

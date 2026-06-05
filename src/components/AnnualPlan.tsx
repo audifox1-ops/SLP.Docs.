@@ -10,6 +10,12 @@ interface Props {
   onUpdate?: (data: AnnualPlanData) => void;
 }
 
+const formatScheduleFrequency = (value?: string) => {
+  const text = value?.trim() || '';
+  if (!text) return '';
+  return text.includes('회') ? text : `주 ${text} 회`;
+};
+
 export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, onUpdate }) => {
   const annualPeriod = normalizeAnnualPlanPeriod(data, year);
   const yearOptions = Array.from(new Set([
@@ -71,11 +77,12 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       <table className="w-full border-collapse border border-black text-[0.75rem] mb-2">
         <thead>
           <tr>
-            <th className="border border-black p-1 w-[15%]">학생명</th>
-            <th className="border border-black p-1 w-[17%]">생년월일</th>
-            <th className="border border-black p-1 w-[22%]">소속 학교<br/>(유치원)</th>
-            <th className="border border-black p-1 w-[20%]">장애 유형</th>
-            <th className="border border-black p-1 w-[26%]">치료 일정</th>
+            <th className="border border-black p-1 w-[12%]">학생명</th>
+            <th className="border border-black p-1 w-[15%]">생년월일</th>
+            <th className="border border-black p-1 w-[18%]">소속 학교<br/>(유치원)</th>
+            <th className="border border-black p-1 w-[18%]">장애 유형</th>
+            <th className="border border-black p-1 w-[15%]">치료 영역</th>
+            <th className="border border-black p-1 w-[22%]">치료 일정</th>
           </tr>
         </thead>
         <tbody>
@@ -84,11 +91,12 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
             <td className="border border-black p-1 text-center">{student.birthDate}</td>
             <td className="border border-black p-1 text-center">{student.school}</td>
             <td className="border border-black p-1 text-center">{student.disabilityType}</td>
+            <td className="border border-black p-1 text-center font-bold">{student.treatmentArea}</td>
             <td className="border border-black p-0">
               <table className="w-full h-full border-collapse">
                 <tbody className="text-[0.65rem]">
                   <tr>
-                    <td className="p-1 border-b border-r border-black w-16">치료 기간</td>
+                    <td className="p-1 border-b border-r border-black w-28">치료 기간</td>
                     <td className="p-1 border-b border-black font-bold">
                       {isEditing ? (
                         <div className="grid grid-cols-2 gap-1 text-[0.65rem]">
@@ -137,12 +145,20 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                     <td className="p-1 border-b border-black font-bold">{student.therapistName}</td>
                   </tr>
                   <tr>
+                    <td className="p-1 border-b border-r border-black">복지부 바우처 이용 영역</td>
+                    <td className="p-1 border-b border-black font-bold">{student.voucherArea || student.treatmentArea}</td>
+                  </tr>
+                  <tr>
                     <td className="p-1 border-b border-r border-black">요일</td>
                     <td className="p-1 border-b border-black font-bold">{student.schedule.day}</td>
                   </tr>
                   <tr>
-                    <td className="p-1 border-r border-black">시간</td>
-                    <td className="p-1 font-bold">{student.schedule.time}</td>
+                    <td className="p-1 border-b border-r border-black">시간</td>
+                    <td className="p-1 border-b border-black font-bold">{student.schedule.time}</td>
+                  </tr>
+                  <tr>
+                    <td className="p-1 border-r border-black">횟수</td>
+                    <td className="p-1 font-bold">{formatScheduleFrequency(student.schedule.frequency)}</td>
                   </tr>
                 </tbody>
               </table>

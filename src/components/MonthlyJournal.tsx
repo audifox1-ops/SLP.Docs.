@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Student, MonthlyJournalData } from '../types';
+import { Plus, RefreshCw, Rows3, Trash2, Pencil } from 'lucide-react';
+import { Student, MonthlyJournalData, PaymentRecord } from '../types';
 
 interface Props {
   student: Student;
@@ -8,6 +9,9 @@ interface Props {
   year: number;
   isEditing?: boolean;
   onUpdate?: (data: MonthlyJournalData) => void;
+  paymentRecords?: PaymentRecord[];
+  formatPaymentSessionDate?: (record: PaymentRecord) => string;
+  onSyncPaymentDates?: () => void;
 }
 
 /** 날짜 문자열에서 월/일/시간 파싱 */
@@ -29,6 +33,52 @@ function buildDateCell(year: number, month: number, day: number, timeStr: string
   const base = `${month}/${day}(${dayName})`;
   return timeStr ? `${base}\n${timeStr}` : base;
 }
+
+const formatScheduleFrequency = (value?: string) => {
+  const text = value?.trim() || '';
+  if (!text) return '';
+  return text.includes('회') ? text : `주 ${text} 회`;
+};
+
+const DEFAULT_SESSION_COUNT = 4;
+const DEFAULT_CONSULTATION = '가정 내에서의 연계 활동 및 지도 방법 안내함.';
+
+const createEmptySession = (): MonthlyJournalData['sessions'][number] => ({
+  date: '',
+  content: '',
+  reaction: '',
+  consultation: DEFAULT_CONSULTATION,
+});
+
+const formatPaymentDate = (value?: string) => {
+  const text = String(value || '').trim();
+  const match = text.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
+  if (!match) return text || '-';
+  const yearPrefix = match[1] ? `${match[1].length === 2 ? `20${match[1]}` : match[1]}.` : '';
+  return `${yearPrefix}${Number(match[2])}.${Number(match[3])}`;
+};
+
+const formatPaymentTime = (value?: string) => {
+  const text = String(value || '').trim();
+  const match = text.match(/(\d{1,2}):(\d{2})/);
+  return match ? `${match[1].padStart(2, '0')}:${match[2]}` : text || '-';
+};
+
+const formatPaymentAmount = (value: PaymentRecord['amount']) => {
+  if (value === undefined || value === null || value === '') return '-';
+  const numeric = typeof value === 'number' ? value : Number(String(value).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(numeric)) return String(value);
+  return `${new Intl.NumberFormat('ko-KR').format(numeric)}원`;
+};
+
+const getDateKey = (value: string, fallbackYear: number) => {
+  const match = String(value || '').match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월/]+(\d{1,2})/);
+  if (!match) return '';
+  const normalizedYear = match[1]
+    ? (match[1].length === 2 ? `20${match[1]}` : match[1])
+    : String(fallbackYear);
+  return `${normalizedYear}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+};
 
 /** 날짜/시간 인라인 편집 팝업 */
 interface DateEditorProps {
@@ -154,7 +204,17 @@ const DateEditor: React.FC<DateEditorProps> = ({ year, dateStr, onSave, onClose 
   );
 };
 
-export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, isEditing, onUpdate }) => {
+export const MonthlyJournal: React.FC<Props> = ({
+  student,
+  data,
+  month,
+  year,
+  isEditing,
+  onUpdate,
+  paymentRecords = [],
+  formatPaymentSessionDate,
+  onSyncPaymentDates,
+}) => {
   const [editingDateIdx, setEditingDateIdx] = useState<number | null>(null);
 
   const handleChange = (field: keyof MonthlyJournalData, value: any) => {
@@ -172,6 +232,25 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
   const handleDateSave = (idx: number, newDateStr: string) => {
     handleSessionChange(idx, 'date', newDateStr);
     setEditingDateIdx(null);
+  };
+
+  const updateSessions = (sessions: MonthlyJournalData['sessions']) => {
+    if (onUpdate) onUpdate({ ...data, sessions });
+  };
+
+  const handleAddSession = () => {
+    updateSessions([...(data.sessions || []), createEmptySession()]);
+  };
+
+  const handleRemoveSession = (idx: number) => {
+    updateSessions((data.sessions || []).filter((_, sessionIdx) => sessionIdx !== idx));
+  };
+
+  const handleEnsureDefaultSessions = () => {
+    const currentSessions = data.sessions || [];
+    const nextCount = Math.max(DEFAULT_SESSION_COUNT, paymentRecords.length, currentSessions.length);
+    const nextSessions = Array.from({ length: nextCount }, (_, idx) => currentSessions[idx] || createEmptySession());
+    updateSessions(nextSessions);
   };
 
   return (
@@ -257,7 +336,7 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                   </tr>
                   <tr>
                     <td className="p-1 border-r border-black ">횟수</td>
-                    <td className="p-1 font-bold">주 {student.schedule.frequency} 회</td>
+                    <td className="p-1 font-bold">{formatScheduleFrequency(student.schedule.frequency)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -299,6 +378,35 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
       </div>
 
       {/* 회기별 일지 */}
+      {isEditing && onUpdate && (
+        <div className="no-print mb-2 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onSyncPaymentDates}
+            disabled={!onSyncPaymentDates || paymentRecords.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            결제일 기준 맞추기
+          </button>
+          <button
+            type="button"
+            onClick={handleEnsureDefaultSessions}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100"
+          >
+            <Rows3 className="h-3.5 w-3.5" />
+            기본 4회 채우기
+          </button>
+          <button
+            type="button"
+            onClick={handleAddSession}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            회기 추가
+          </button>
+        </div>
+      )}
       <table className="w-full border-collapse border border-black text-[0.75rem] mb-2">
         <thead>
           <tr className="">
@@ -333,10 +441,20 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
                         {session.date || <span className="text-slate-300">날짜 클릭</span>}
                       </span>
                       <button
-                        className="mt-0.5 text-[0.6rem] text-indigo-400 hover:text-indigo-600 underline print:hidden"
+                        type="button"
+                        className="mt-0.5 inline-flex items-center justify-center gap-0.5 text-[0.6rem] text-indigo-500 hover:text-indigo-700 print:hidden"
                         onClick={() => setEditingDateIdx(idx)}
                       >
-                        ✏️ 수정
+                        <Pencil className="h-2.5 w-2.5" />
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        className="mt-0.5 inline-flex items-center justify-center gap-0.5 text-[0.6rem] text-red-500 hover:text-red-700 print:hidden"
+                        onClick={() => handleRemoveSession(idx)}
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                        삭제
                       </button>
                     </div>
                   ) : (
@@ -385,6 +503,55 @@ export const MonthlyJournal: React.FC<Props> = ({ student, data, month, year, is
             <tr className="h-32">
               <td colSpan={4} className="border border-black p-4 text-center text-slate-400 font-bold">
                 해당 월의 치료 내역이 없습니다.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* 엑셀 결제 이력 */}
+      <table className="w-full border-collapse border border-black text-[0.7rem] mb-2">
+        <thead>
+          <tr>
+            <th colSpan={6} className="border border-black p-1 text-center text-[0.78rem]">
+              엑셀 결제 이력(선택 월)
+            </th>
+          </tr>
+          <tr>
+            <th className="border border-black p-1 w-12 text-center">회차</th>
+            <th className="border border-black p-1 w-24 text-center">결제일</th>
+            <th className="border border-black p-1 w-20 text-center">결제 시간</th>
+            <th className="border border-black p-1 text-center">치료 영역</th>
+            <th className="border border-black p-1 w-24 text-center">금액</th>
+            <th className="border border-black p-1 w-32 text-center">일지 날짜</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paymentRecords.length > 0 ? (
+            paymentRecords.map((record, idx) => {
+              const sessionDate = data.sessions[idx]?.date || '';
+              const expectedDate = formatPaymentSessionDate ? formatPaymentSessionDate(record) : record.transactionDate;
+              const paymentKey = getDateKey(record.transactionDate, year);
+              const sessionKey = getDateKey(sessionDate, year);
+              const isMismatch = Boolean(paymentKey && sessionKey && paymentKey !== sessionKey);
+
+              return (
+                <tr key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}>
+                  <td className="border border-black p-1 text-center font-bold">{idx + 1}</td>
+                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentDate(record.transactionDate)}</td>
+                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentTime(record.transactionTime)}</td>
+                  <td className="border border-black p-1 text-center">{record.treatmentArea || '-'}</td>
+                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentAmount(record.amount)}</td>
+                  <td className={`border border-black p-1 text-center whitespace-pre-line font-bold ${isMismatch ? 'text-red-600 print:text-black' : ''}`}>
+                    {sessionDate || expectedDate || '-'}
+                  </td>
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td colSpan={6} className="border border-black p-3 text-center text-slate-500">
+                선택한 월에 업로드된 결제 이력이 없습니다.
               </td>
             </tr>
           )}

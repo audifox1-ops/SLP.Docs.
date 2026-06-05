@@ -13,6 +13,9 @@ export default async function handler(req, res) {
 
   const body = parseBody(req.body);
   const result = await generateGeminiContent(body?.prompt, body?.model);
+  if (result.payload?.error?.retryAfterSeconds) {
+    res.setHeader('Retry-After', String(result.payload.error.retryAfterSeconds));
+  }
   return res.status(result.status).json(result.payload);
 }
 

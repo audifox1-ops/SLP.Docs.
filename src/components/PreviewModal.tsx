@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { saveAs } from 'file-saver';
-import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData } from '../types';
+import { Student, AnnualPlanData, DocumentTemplateSample, MonthlyJournalData, PaymentRecord } from '../types';
 import { AnnualPlan } from './AnnualPlan';
 import { MonthlyJournal } from './MonthlyJournal';
 import { canApplyTemplateAutomatically, exportAnnualPlanFromTemplate, exportCombinedJournalFromTemplate, exportMonthlyJournalFromTemplate } from '../utils/monthlyTemplateExport';
@@ -18,6 +18,7 @@ interface Props {
   monthlyTemplate?: DocumentTemplateSample | null;
   selectedYear: number;
   selectedMonth: number;
+  paymentRecords?: PaymentRecord[];
 }
 
 export const PreviewModal: React.FC<Props> = ({
@@ -31,7 +32,8 @@ export const PreviewModal: React.FC<Props> = ({
   annualTemplate,
   monthlyTemplate,
   selectedYear,
-  selectedMonth
+  selectedMonth,
+  paymentRecords = []
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const annualPageRef = useRef<HTMLDivElement>(null);
@@ -47,6 +49,8 @@ export const PreviewModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const showCombinedPreview = previewMode === 'combined' && canPreviewCombined;
+  const annualTemplateForDownload = annualTemplate || combinedTemplate;
+  const monthlyTemplateForDownload = monthlyTemplate || combinedTemplate;
   const pageStyle = {
     width: '210mm',
     minHeight: '297mm',
@@ -89,13 +93,13 @@ export const PreviewModal: React.FC<Props> = ({
       return true;
     }
 
-    if (activeTab === 'annual' && annualData && canApplyTemplateAutomatically(annualTemplate)) {
-      await exportAnnualPlanFromTemplate(annualTemplate, student, annualData, selectedYear);
+    if (activeTab === 'annual' && annualData && canApplyTemplateAutomatically(annualTemplateForDownload)) {
+      await exportAnnualPlanFromTemplate(annualTemplateForDownload, student, annualData, selectedYear);
       return true;
     }
 
-    if (activeTab === 'monthly' && monthlyData && canApplyTemplateAutomatically(monthlyTemplate)) {
-      await exportMonthlyJournalFromTemplate(monthlyTemplate, student, monthlyData, selectedYear, selectedMonth);
+    if (activeTab === 'monthly' && monthlyData && canApplyTemplateAutomatically(monthlyTemplateForDownload)) {
+      await exportMonthlyJournalFromTemplate(monthlyTemplateForDownload, student, monthlyData, selectedYear, selectedMonth);
       return true;
     }
 
@@ -104,7 +108,7 @@ export const PreviewModal: React.FC<Props> = ({
 
   const downloadDefaultDocx = async () => {
     if (showCombinedPreview && annualData && monthlyData) {
-      const blob = await createCombinedAnnualMonthlyDocxBlob(student, annualData, monthlyData, selectedYear, selectedMonth);
+      const blob = await createCombinedAnnualMonthlyDocxBlob(student, annualData, monthlyData, selectedYear, selectedMonth, paymentRecords);
       saveAs(blob, `${student.name}_${selectedMonth}월_연간월간.docx`);
       return;
     }
@@ -116,7 +120,7 @@ export const PreviewModal: React.FC<Props> = ({
     }
 
     if (activeTab === 'monthly' && monthlyData) {
-      const blob = await createMonthlyDocxBlob(student, monthlyData, selectedYear, selectedMonth);
+      const blob = await createMonthlyDocxBlob(student, monthlyData, selectedYear, selectedMonth, paymentRecords);
       saveAs(blob, `${student.name}_${selectedMonth}월_치료일지.docx`);
     }
   };
@@ -220,6 +224,7 @@ export const PreviewModal: React.FC<Props> = ({
                     month={selectedMonth}
                     year={selectedYear}
                     isEditing={false}
+                    paymentRecords={paymentRecords}
                   />
                 </div>
               </>
@@ -241,6 +246,7 @@ export const PreviewModal: React.FC<Props> = ({
                     month={selectedMonth}
                     year={selectedYear}
                     isEditing={false}
+                    paymentRecords={paymentRecords}
                   />
                 )}
 
