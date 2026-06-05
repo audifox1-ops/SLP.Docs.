@@ -10,6 +10,7 @@ interface Props {
   uploadProgress?: number | null;
   onClose: () => void;
   onUpload: (file: File) => void;
+  onOpen: () => void;
   onDelete: () => void;
 }
 
@@ -32,6 +33,7 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
   uploadProgress,
   onClose,
   onUpload,
+  onOpen,
   onDelete,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -136,15 +138,14 @@ export const MonthlyTemplateModal: React.FC<Props> = ({
                 </div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
-                <a
-                  href={template.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-2 rounded-xl bg-white border border-border-theme text-sm font-bold text-text-main hover:bg-bg-theme flex items-center gap-2"
+                <button
+                  onClick={onOpen}
+                  disabled={isUploading}
+                  className="px-3 py-2 rounded-xl bg-white border border-border-theme text-sm font-bold text-text-main hover:bg-bg-theme disabled:opacity-50 flex items-center gap-2"
                 >
                   <ExternalLink className="w-4 h-4" />
                   열기
-                </a>
+                </button>
                 <button
                   onClick={onDelete}
                   disabled={isUploading}

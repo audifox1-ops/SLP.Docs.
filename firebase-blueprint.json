@@ -58,6 +58,13 @@
           "fileType": { "type": "string" },
           "fileSize": { "type": "number" },
           "uploadedAtMs": { "type": "number" },
+          "storageMode": {
+            "type": "string",
+            "description": "firestore-chunks for current template sample uploads, firebase-storage for older uploaded files"
+          },
+          "chunkUploadId": { "type": "string" },
+          "chunkCount": { "type": "number" },
+          "chunkSize": { "type": "number" },
           "applyMode": {
             "type": "string",
             "description": "hwp-template for primary HWP samples, hwpx-template/docx-template for automatic placeholder replacement, sample-reference for reference-only files"

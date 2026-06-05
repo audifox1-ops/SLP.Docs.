@@ -118,6 +118,11 @@ service cloud.firestore {
     match /document_templates/{templateId} {
       allow read, write: if true;
     }
+
+    // Chunked template files stored under each template document.
+    match /document_templates/{templateId}/{document=**} {
+      allow read, write: if true;
+    }
     
     // Test connection path
     match /test/connection {

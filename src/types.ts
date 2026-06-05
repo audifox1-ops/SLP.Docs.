@@ -96,6 +96,10 @@ export interface MonthlyJournalTemplateSample {
   fileType: string;
   fileSize: number;
   uploadedAtMs: number;
+  storageMode?: 'firestore-chunks' | 'firebase-storage';
+  chunkUploadId?: string;
+  chunkCount?: number;
+  chunkSize?: number;
   applyMode: 'sample-reference' | 'hwp-template' | 'hwpx-template' | 'docx-template';
   notes?: string;
   updatedAt?: any;

@@ -18,3 +18,24 @@ View your app in AI Studio: https://ai.studio/apps/f6c3d59c-c8ab-4ba0-973b-32245
 2. Set the `GEMINI_API_KEY` in `.env` to your Gemini API key. If Google reports the key as leaked, revoke it, create a new key, update `.env`, and restart the server.
 3. Run the app:
    `npm run dev`
+
+## Monthly Template Uploads
+
+Monthly journal sample templates are stored in Firestore chunks under `document_templates/monthly_journal/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
+
+After changing `firestore.rules`, deploy the rules before testing template uploads in production:
+
+```bash
+npm run firestore:rules:deploy
+```
+
+## Firebase Storage CORS
+
+Other file uploads still use Firebase Storage. If those uploads fail on `https://slp-docs.vercel.app` with a CORS preflight error, apply the Storage bucket CORS policy:
+
+```bash
+npm run storage:cors
+npm run storage:cors:show
+```
+
+This requires Google Cloud CLI authentication with permission to update the `slp-docs.firebasestorage.app` bucket. In Google Cloud Shell, run it from the repository root.

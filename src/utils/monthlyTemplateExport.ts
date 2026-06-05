@@ -1,5 +1,6 @@
 import { saveAs } from 'file-saver';
 import { MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
+import { loadTemplateFileFromChunks } from '../services/templateFileService';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const HWPX_MIME = 'application/vnd.hancom.hwpx';
@@ -65,6 +66,10 @@ export const cacheMonthlyTemplateFile = async (fileUrl: string, file: File) => {
 };
 
 const fetchTemplateArrayBuffer = async (template: MonthlyJournalTemplateSample) => {
+  if (template.storageMode === 'firestore-chunks') {
+    return loadTemplateFileFromChunks('monthly_journal', template.chunkUploadId);
+  }
+
   const cache = await getCache();
   const cached = cache ? await cache.match(template.fileUrl) : null;
   if (cached) return cached.arrayBuffer();

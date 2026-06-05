@@ -9,7 +9,10 @@
     "start": "node dist/server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "firestore:rules:deploy": "npx --yes firebase-tools deploy --only firestore:rules --project slp-docs --non-interactive",
+    "storage:cors": "gcloud storage buckets update gs://slp-docs.firebasestorage.app --cors-file=storage.cors.json",
+    "storage:cors:show": "gcloud storage buckets describe gs://slp-docs.firebasestorage.app --format=\"default(cors_config)\""
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

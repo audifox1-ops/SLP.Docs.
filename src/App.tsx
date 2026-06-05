@@ -12,9 +12,10 @@ import { PreviewModal } from './components/PreviewModal';
 import { MonthlyTemplateModal } from './components/MonthlyTemplateModal';
 import { ScheduleManager } from './components/ScheduleManager';
 import { exportMultiMonthDocs } from './utils/docxExport';
-import { cacheMonthlyTemplateFile, exportMonthlyJournalFromTemplate } from './utils/monthlyTemplateExport';
+import { exportMonthlyJournalFromTemplate } from './utils/monthlyTemplateExport';
 import { StudentManagement } from './components/StudentManagement';
-import { uploadFile, uploadFileWithProgress, uploadBlob, deleteFileFromStorage } from './services/storageService';
+import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
+import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import {
   collection,
@@ -85,6 +86,26 @@ type DocumentStatuses = Record<string, { annual: boolean; monthly: Record<string
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error && error.message ? error.message : fallback
 );
+
+const getTemplateUploadErrorMessage = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const text = message.toLowerCase();
+  if (
+    text.includes('permission-denied') ||
+    text.includes('missing or insufficient permissions')
+  ) {
+    return 'Firestore 문서 템플릿 저장 권한이 없습니다. firestore.rules를 배포한 뒤 다시 시도해 주세요.';
+  }
+  if (
+    text.includes('cors') ||
+    text.includes('network') ||
+    text.includes('err_failed') ||
+    text.includes('storage/unknown')
+  ) {
+    return '브라우저 네트워크 요청이 차단되었습니다. 최신 배포가 반영되었는지 확인하고, 기존 Storage 업로드 경로라면 storage.cors.json을 버킷에 적용해 주세요.';
+  }
+  return getErrorMessage(error, '월간일지 샘플 업로드 중 오류가 발생했습니다.');
+};
 
 const createDefaultPromptTemplates = (): PromptTemplates => ({
   annual: '현행 수준은 관찰 가능한 행동 중심으로 작성하고, 월별 목표는 실제 치료 영역과 연결해 간결하게 작성한다.',
@@ -1476,16 +1497,10 @@ export default function App() {
     setIsTemplateUploading(true);
     setTemplateUploadProgress(0);
     try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const safeName = file.name.replace(/[^a-zA-Z0-9가-힣._ -]/g, '_');
-      const storagePath = `document_templates/monthly_journal/${timestamp}_${safeName}`;
-      const fileUrl = await uploadFileWithProgress(file, storagePath, setTemplateUploadProgress);
-
-      if (['hwp', 'hwpx', 'docx'].includes(extension)) {
-        void cacheMonthlyTemplateFile(fileUrl, file).catch((cacheError) => {
-          console.warn('Template browser cache failed:', cacheError);
-        });
-      }
+      const previousChunkUploadId = monthlyTemplateSample?.storageMode === 'firestore-chunks'
+        ? monthlyTemplateSample.chunkUploadId
+        : undefined;
+      const chunkResult = await saveTemplateFileChunks('monthly_journal', file, setTemplateUploadProgress);
 
       const applyMode: MonthlyJournalTemplateSample['applyMode'] =
         extension === 'hwp' ? 'hwp-template' :
@@ -1495,15 +1510,24 @@ export default function App() {
 
       const templateData: MonthlyJournalTemplateSample = {
         fileName: file.name,
-        fileUrl,
+        fileUrl: chunkResult.fileUrl,
         fileType: extension,
         fileSize: file.size,
         uploadedAtMs: Date.now(),
+        storageMode: 'firestore-chunks',
+        chunkUploadId: chunkResult.uploadId,
+        chunkCount: chunkResult.chunkCount,
+        chunkSize: chunkResult.chunkSize,
         applyMode,
         updatedAt: serverTimestamp()
       };
 
       await setDoc(doc(db, 'document_templates', 'monthly_journal'), templateData);
+      if (previousChunkUploadId) {
+        void deleteTemplateFileChunks('monthly_journal', previousChunkUploadId).catch((cleanupError) => {
+          console.warn('Previous template chunk cleanup failed:', cleanupError);
+        });
+      }
       setMonthlyTemplateSample(templateData);
       setUploadStatus({
         type: 'success',
@@ -1518,7 +1542,7 @@ export default function App() {
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
       console.error('Monthly template upload error:', error);
-      setUploadStatus({ type: 'error', message: getErrorMessage(error, '월간일지 샘플 업로드 중 오류가 발생했습니다.') });
+      setUploadStatus({ type: 'error', message: getTemplateUploadErrorMessage(error) });
       setTimeout(() => setUploadStatus(null), 5000);
     } finally {
       setIsTemplateUploading(false);
@@ -1533,7 +1557,11 @@ export default function App() {
     setIsTemplateUploading(true);
     try {
       try {
-        await deleteFileFromStorage(monthlyTemplateSample.fileUrl);
+        if (monthlyTemplateSample.storageMode === 'firestore-chunks') {
+          await deleteTemplateFileChunks('monthly_journal', monthlyTemplateSample.chunkUploadId);
+        } else {
+          await deleteFileFromStorage(monthlyTemplateSample.fileUrl);
+        }
       } catch (storageErr) {
         console.warn('Template storage deletion failed or file not found:', storageErr);
       }
@@ -1547,6 +1575,29 @@ export default function App() {
       setTimeout(() => setUploadStatus(null), 5000);
     } finally {
       setIsTemplateUploading(false);
+    }
+  };
+
+  const handleOpenMonthlyTemplate = async () => {
+    if (!monthlyTemplateSample) return;
+
+    try {
+      if (monthlyTemplateSample.storageMode === 'firestore-chunks') {
+        const arrayBuffer = await loadTemplateFileFromChunks('monthly_journal', monthlyTemplateSample.chunkUploadId);
+        const blob = new Blob([arrayBuffer], { type: monthlyTemplateSample.fileType === 'hwpx' ? 'application/vnd.hancom.hwpx' : 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = monthlyTemplateSample.fileName;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      window.open(monthlyTemplateSample.fileUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('Template open error:', error);
+      setUploadStatus({ type: 'error', message: '샘플 양식 파일을 여는 중 오류가 발생했습니다.' });
+      setTimeout(() => setUploadStatus(null), 5000);
     }
   };
 
@@ -3132,6 +3183,7 @@ export default function App() {
         uploadProgress={templateUploadProgress}
         onClose={() => setShowTemplateModal(false)}
         onUpload={handleUploadMonthlyTemplate}
+        onOpen={handleOpenMonthlyTemplate}
         onDelete={handleDeleteMonthlyTemplate}
       />
 
