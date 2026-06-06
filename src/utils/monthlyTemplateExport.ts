@@ -114,6 +114,10 @@ const sanitizeTemplateValue = (value: string | number | undefined | null) => (
   value === undefined || value === null ? '' : String(value)
 );
 
+const sanitizeTemplateDateOnly = (value: string | number | undefined | null) => (
+  sanitizeTemplateValue(value).split(/\n/)[0].trim()
+);
+
 const escapeXml = (value: string) => (
   value
     .replace(/&/g, '&amp;')
@@ -423,7 +427,7 @@ const fillMonthlySessionRows = (rows: Element[][], data: TemplateData) => {
   rows.slice(headerIndex + 1).forEach((cells, index) => {
     if (cells.length < 4) return;
     const session = sessions[index];
-    changes += setCellText(cells[0], session?.date || '');
+    changes += setCellText(cells[0], sanitizeTemplateDateOnly(session?.date));
     changes += setCellText(cells[1], session?.content || '');
     changes += setCellText(cells[2], session?.reaction || '');
     changes += setCellText(cells[3], session?.consultation || '');
@@ -541,7 +545,7 @@ export const createMonthlyTemplateData = (
   const treatmentArea = student.monthlyAreas?.[selectedMonth] || student.treatmentArea;
   const sessions = monthlyData.sessions.map((session, index) => ({
     index: String(index + 1),
-    date: sanitizeTemplateValue(session.date),
+    date: sanitizeTemplateDateOnly(session.date),
     content: sanitizeTemplateValue(session.content),
     reaction: sanitizeTemplateValue(session.reaction),
     consultation: sanitizeTemplateValue(session.consultation),

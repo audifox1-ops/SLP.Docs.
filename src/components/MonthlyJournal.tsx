@@ -10,28 +10,24 @@ interface Props {
   isEditing?: boolean;
   onUpdate?: (data: MonthlyJournalData) => void;
   paymentRecords?: PaymentRecord[];
-  formatPaymentSessionDate?: (record: PaymentRecord) => string;
   onSyncPaymentDates?: () => void;
 }
 
-/** 날짜 문자열에서 월/일/시간 파싱 */
-function parseDateCell(dateStr: string): { month: number; day: number; timeStr: string } {
+/** 날짜 문자열에서 월/일 파싱 */
+function parseDateCell(dateStr: string): { month: number; day: number } {
   const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})/);
-  const timeMatch = dateStr.match(/(\d{1,2}:\d{2})~(\d{1,2}:\d{2})/);
   return {
     month: dateMatch ? parseInt(dateMatch[1]) : 0,
     day: dateMatch ? parseInt(dateMatch[2]) : 0,
-    timeStr: timeMatch ? `${timeMatch[1]}~${timeMatch[2]}` : '',
   };
 }
 
-/** 날짜+시간 → 셀 표시 문자열 생성 */
+/** 날짜 → 셀 표시 문자열 생성 */
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
-function buildDateCell(year: number, month: number, day: number, timeStr: string): string {
+function buildDateCell(year: number, month: number, day: number): string {
   if (!month || !day) return '';
   const dayName = DAY_NAMES[new Date(year, month - 1, day).getDay()];
-  const base = `${month}/${day}(${dayName})`;
-  return timeStr ? `${base}\n${timeStr}` : base;
+  return `${month}/${day}(${dayName})`;
 }
 
 const formatScheduleFrequency = (value?: string) => {
@@ -71,16 +67,22 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
   return `${new Intl.NumberFormat('ko-KR').format(numeric)}원`;
 };
 
-const getDateKey = (value: string, fallbackYear: number) => {
-  const match = String(value || '').match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월/]+(\d{1,2})/);
-  if (!match) return '';
-  const normalizedYear = match[1]
-    ? (match[1].length === 2 ? `20${match[1]}` : match[1])
-    : String(fallbackYear);
-  return `${normalizedYear}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+const formatSessionDateOnly = (value?: string) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.split(/\n/)[0].trim();
 };
 
-/** 날짜/시간 인라인 편집 팝업 */
+const formatPaymentLine = (record: PaymentRecord, idx: number) => {
+  const time = formatPaymentTime(record.transactionTime);
+  const timeText = time === '-' ? '' : ` ${time}`;
+  const areaText = record.treatmentArea ? ` / ${record.treatmentArea}` : '';
+  const amount = formatPaymentAmount(record.amount);
+  const amountText = amount === '-' ? '' : ` / ${amount}`;
+  return `${idx + 1}회차: ${formatPaymentDate(record.transactionDate)}${timeText}${areaText}${amountText}`;
+};
+
+/** 날짜 인라인 편집 팝업 */
 interface DateEditorProps {
   year: number;
   dateStr: string;
@@ -91,7 +93,6 @@ const DateEditor: React.FC<DateEditorProps> = ({ year, dateStr, onSave, onClose 
   const parsed = parseDateCell(dateStr);
   const [selMonth, setSelMonth] = useState(parsed.month || new Date().getMonth() + 1);
   const [selDay, setSelDay] = useState(parsed.day || new Date().getDate());
-  const [selTime, setSelTime] = useState(parsed.timeStr);
   const ref = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 닫기
@@ -107,7 +108,7 @@ const DateEditor: React.FC<DateEditorProps> = ({ year, dateStr, onSave, onClose 
   const daysInMonth = new Date(year, selMonth, 0).getDate();
 
   const handleSave = () => {
-    onSave(buildDateCell(year, selMonth, selDay, selTime));
+    onSave(buildDateCell(year, selMonth, selDay));
     onClose();
   };
 
@@ -117,7 +118,7 @@ const DateEditor: React.FC<DateEditorProps> = ({ year, dateStr, onSave, onClose 
       className="absolute z-50 bg-white border border-indigo-300 rounded-lg shadow-xl p-3 text-[0.78rem] w-52"
       style={{ top: '110%', left: '50%', transform: 'translateX(-50%)' }}
     >
-      <div className="font-bold text-indigo-700 mb-2 text-center">날짜 / 시간 수정</div>
+      <div className="font-bold text-indigo-700 mb-2 text-center">날짜 수정</div>
 
       {/* 월 선택 */}
       <div className="flex items-center gap-1 mb-1.5">
@@ -147,43 +148,9 @@ const DateEditor: React.FC<DateEditorProps> = ({ year, dateStr, onSave, onClose 
         </select>
       </div>
 
-      {/* 시간 입력 */}
-      <div className="flex items-center gap-1 mb-2.5">
-        <span className="w-8 text-slate-500">시간</span>
-        <input
-          type="text"
-          className="flex-1 border border-slate-200 rounded px-1 py-0.5 outline-none"
-          placeholder="예: 16:50~17:30"
-          value={selTime}
-          onChange={e => setSelTime(e.target.value)}
-        />
-      </div>
-
-      {/* 시간 빠른 선택 */}
-      <div className="flex flex-wrap gap-1 mb-2.5">
-        {['09:00~09:40','10:00~10:40','11:00~11:40','13:00~13:40','14:00~14:40',
-          '14:50~15:30','15:40~16:20','16:30~17:10','16:50~17:30','17:20~18:00','17:40~18:20','18:00~18:40'].map(t => (
-          <button
-            key={t}
-            className={`px-1 py-0.5 rounded text-[0.65rem] border transition-colors ${
-              selTime === t ? 'bg-indigo-500 text-white border-indigo-500' : 'border-slate-200 hover:bg-indigo-50'
-            }`}
-            onClick={() => setSelTime(t)}
-          >
-            {t}
-          </button>
-        ))}
-        <button
-          className="px-1 py-0.5 rounded text-[0.65rem] border border-slate-200 hover:bg-red-50 text-red-400"
-          onClick={() => setSelTime('')}
-        >
-          시간 삭제
-        </button>
-      </div>
-
       {/* 미리보기 */}
       <div className="bg-slate-50 rounded p-1.5 text-center text-[0.72rem] font-bold mb-2 whitespace-pre-line text-indigo-700">
-        {buildDateCell(year, selMonth, selDay, selTime) || '—'}
+        {buildDateCell(year, selMonth, selDay) || '—'}
       </div>
 
       <div className="flex gap-1.5">
@@ -212,7 +179,6 @@ export const MonthlyJournal: React.FC<Props> = ({
   isEditing,
   onUpdate,
   paymentRecords = [],
-  formatPaymentSessionDate,
   onSyncPaymentDates,
 }) => {
   const [editingDateIdx, setEditingDateIdx] = useState<number | null>(null);
@@ -435,10 +401,10 @@ export const MonthlyJournal: React.FC<Props> = ({
                     <div className="relative">
                       <span
                         className="whitespace-pre-line block cursor-pointer hover:bg-indigo-50 rounded transition-colors px-1 print:hidden"
-                        title="클릭하여 날짜/시간 수정"
+                        title="클릭하여 날짜 수정"
                         onClick={() => setEditingDateIdx(idx)}
                       >
-                        {session.date || <span className="text-slate-300">날짜 클릭</span>}
+                        {formatSessionDateOnly(session.date) || <span className="text-slate-300">날짜 클릭</span>}
                       </span>
                       <button
                         type="button"
@@ -460,7 +426,7 @@ export const MonthlyJournal: React.FC<Props> = ({
                   ) : (
                     /* 뷰 모드: 단순 텍스트 표시 */
                     <div className="relative">
-                      <span className="whitespace-pre-line">{session.date}</span>
+                      <span>{formatSessionDateOnly(session.date)}</span>
                     </div>
                   )}
                 </td>
@@ -509,55 +475,6 @@ export const MonthlyJournal: React.FC<Props> = ({
         </tbody>
       </table>
 
-      {/* 엑셀 결제 이력 */}
-      <table className="w-full border-collapse border border-black text-[0.7rem] mb-2">
-        <thead>
-          <tr>
-            <th colSpan={6} className="border border-black p-1 text-center text-[0.78rem]">
-              엑셀 결제 이력(선택 월)
-            </th>
-          </tr>
-          <tr>
-            <th className="border border-black p-1 w-12 text-center">회차</th>
-            <th className="border border-black p-1 w-24 text-center">결제일</th>
-            <th className="border border-black p-1 w-20 text-center">결제 시간</th>
-            <th className="border border-black p-1 text-center">치료 영역</th>
-            <th className="border border-black p-1 w-24 text-center">금액</th>
-            <th className="border border-black p-1 w-32 text-center">일지 날짜</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paymentRecords.length > 0 ? (
-            paymentRecords.map((record, idx) => {
-              const sessionDate = data.sessions[idx]?.date || '';
-              const expectedDate = formatPaymentSessionDate ? formatPaymentSessionDate(record) : record.transactionDate;
-              const paymentKey = getDateKey(record.transactionDate, year);
-              const sessionKey = getDateKey(sessionDate, year);
-              const isMismatch = Boolean(paymentKey && sessionKey && paymentKey !== sessionKey);
-
-              return (
-                <tr key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}>
-                  <td className="border border-black p-1 text-center font-bold">{idx + 1}</td>
-                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentDate(record.transactionDate)}</td>
-                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentTime(record.transactionTime)}</td>
-                  <td className="border border-black p-1 text-center">{record.treatmentArea || '-'}</td>
-                  <td className="border border-black p-1 text-center whitespace-nowrap">{formatPaymentAmount(record.amount)}</td>
-                  <td className={`border border-black p-1 text-center whitespace-pre-line font-bold ${isMismatch ? 'text-red-600 print:text-black' : ''}`}>
-                    {sessionDate || expectedDate || '-'}
-                  </td>
-                </tr>
-              );
-            })
-          ) : (
-            <tr>
-              <td colSpan={6} className="border border-black p-3 text-center text-slate-500">
-                선택한 월에 업로드된 결제 이력이 없습니다.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-
       {/* 치료 결과 */}
       <div className="flex border border-black">
         <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 결과</div>
@@ -570,6 +487,22 @@ export const MonthlyJournal: React.FC<Props> = ({
             />
           ) : data.result}
         </div>
+      </div>
+
+      {/* 결제 내역 */}
+      <div className="mt-2 text-[0.7rem] leading-relaxed">
+        <div className="font-bold">결제 내역</div>
+        {paymentRecords.length > 0 ? (
+          <div className="space-y-0.5">
+            {paymentRecords.map((record, idx) => (
+              <div key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}>
+                {formatPaymentLine(record, idx)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-slate-500">선택한 월에 업로드된 결제 이력이 없습니다.</div>
+        )}
       </div>
     </div>
   );

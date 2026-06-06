@@ -52,6 +52,21 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
   return sanitizeText(`${new Intl.NumberFormat('ko-KR').format(numeric)}원`);
 };
 
+const formatSessionDateOnly = (value?: string) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return sanitizeText(text.split(/\n/)[0].trim());
+};
+
+const formatPaymentLine = (record: PaymentRecord, idx: number) => {
+  const time = formatPaymentTime(record.transactionTime);
+  const timeText = time === '-' ? '' : ` ${time}`;
+  const areaText = record.treatmentArea ? ` / ${sanitizeText(record.treatmentArea)}` : '';
+  const amount = formatPaymentAmount(record.amount);
+  const amountText = amount === '-' ? '' : ` / ${amount}`;
+  return sanitizeText(`${idx + 1}회차: ${formatPaymentDate(record.transactionDate)}${timeText}${areaText}${amountText}`);
+};
+
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
   const therapyPeriod = formatAnnualPlanPeriod(annualData, selectedYear);
 
@@ -83,7 +98,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
           new TableRow({
-            children: ['학생명', '생년월일', '소속 학교', '장애 유형', '치료 영역', '치료 일정'].map(text => 
+            children: ['학생명', '생년월일', '소속 학교 (유치원)', '장애 유형', '치료 영역', '치료 일정'].map(text =>
               new TableCell({
                 children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
                 shading: { fill: "F1F5F9" },
@@ -183,7 +198,7 @@ export const generateMonthlyWordSection = (
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
           new TableRow({
-            children: ['학생명', '생년월일', '소속학교', '장애 유형', '치료 영역', '치료 일정'].map(text => 
+            children: ['학생명', '생년월일', '소속학교 (유치원)', '장애 유형', '치료 영역', '치료 일정'].map(text =>
               new TableCell({
                 children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
                 shading: { fill: "F1F5F9" },
@@ -245,60 +260,12 @@ export const generateMonthlyWordSection = (
           }),
           ...monthlyData.sessions.map(session => new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(session.date), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: formatSessionDateOnly(session.date), alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(session.content) })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(session.reaction) })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(session.consultation) })], borders }),
             ],
           })),
-        ],
-      }),
-      new Paragraph({ text: "", spacing: { before: 200 } }),
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                children: [new Paragraph({ text: "엑셀 결제 이력(선택 월)", alignment: AlignmentType.CENTER })],
-                shading: { fill: "F1F5F9" },
-                borders,
-              }),
-              ...Array.from({ length: 5 }, () => new TableCell({
-                children: [new Paragraph({ text: "" })],
-                shading: { fill: "F1F5F9" },
-                borders,
-              })),
-            ],
-          }),
-          new TableRow({
-            children: ['회차', '결제일', '결제 시간', '치료 영역', '금액', '일지 날짜'].map(text =>
-              new TableCell({
-                children: [new Paragraph({ text: sanitizeText(text), alignment: AlignmentType.CENTER })],
-                shading: { fill: "F1F5F9" },
-                borders,
-              })
-            ),
-          }),
-          ...(paymentRecords.length > 0
-            ? paymentRecords.map((record, idx) => new TableRow({
-              children: [
-                new TableCell({ children: [new Paragraph({ text: String(idx + 1), alignment: AlignmentType.CENTER })], borders }),
-                new TableCell({ children: [new Paragraph({ text: formatPaymentDate(record.transactionDate), alignment: AlignmentType.CENTER })], borders }),
-                new TableCell({ children: [new Paragraph({ text: formatPaymentTime(record.transactionTime), alignment: AlignmentType.CENTER })], borders }),
-                new TableCell({ children: [new Paragraph({ text: sanitizeText(record.treatmentArea || '-'), alignment: AlignmentType.CENTER })], borders }),
-                new TableCell({ children: [new Paragraph({ text: formatPaymentAmount(record.amount), alignment: AlignmentType.CENTER })], borders }),
-                new TableCell({ children: [new Paragraph({ text: sanitizeText(monthlyData.sessions[idx]?.date || ''), alignment: AlignmentType.CENTER })], borders }),
-              ],
-            }))
-            : [
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "선택한 월에 업로드된 결제 이력이 없습니다.", alignment: AlignmentType.CENTER })], borders }),
-                  ...Array.from({ length: 5 }, () => new TableCell({ children: [new Paragraph({ text: "" })], borders })),
-                ],
-              }),
-            ]),
         ],
       }),
       new Paragraph({ text: "", spacing: { before: 200 } }),
@@ -313,6 +280,22 @@ export const generateMonthlyWordSection = (
           }),
         ],
       }),
+      new Paragraph({ text: "", spacing: { before: 200 } }),
+      new Paragraph({
+        children: [new TextRun({ text: "결제 내역", bold: true })],
+        spacing: { after: 80 },
+      }),
+      ...(paymentRecords.length > 0
+        ? paymentRecords.map((record, idx) => new Paragraph({
+          text: formatPaymentLine(record, idx),
+          spacing: { after: 40 },
+        }))
+        : [
+          new Paragraph({
+            text: "선택한 월에 업로드된 결제 이력이 없습니다.",
+            spacing: { after: 40 },
+          }),
+        ]),
     ],
   };
 };

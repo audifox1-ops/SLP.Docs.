@@ -245,3 +245,42 @@ Verifiers:
 - npm run lint passed
 - npm run build passed
 Next: Ready for user testing at http://localhost:3000
+
+## 2026-06-06 Monthly Journal Bottom Payment Text
+
+Objective:
+- 월간일지 회기 날짜 셀에서 수업시간 표시를 제거한다.
+- 월간일지 결제 내역을 표가 아닌 텍스트 목록으로 바꾸고 문서 최하단에 배치한다.
+- 연간계획서와 월간일지 기본 양식이 샘플 구조와 일치하는지 재확인한다.
+- 작업 내역을 Markdown으로 남겨 중단 후 이어서 작업할 수 있게 한다.
+
+Change:
+- `src/App.tsx`
+  - `formatSessionDate`가 새 월간일지 날짜를 `M/D(요일)` 형식으로만 저장하도록 변경했다.
+  - 월간일지 컴포넌트에 더 이상 결제일 포맷 콜백을 넘기지 않는다.
+- `src/components/MonthlyJournal.tsx`
+  - 날짜 편집 팝업에서 시간 입력/빠른 선택을 제거했다.
+  - 기존 저장 데이터에 시간이 남아 있어도 회기 날짜 셀에는 첫 줄의 날짜만 표시한다.
+  - 결제 내역 표를 제거하고, 치료 결과 아래 최하단에 `결제 내역` 텍스트 목록으로 배치했다.
+- `src/utils/docxExport.ts`
+  - 기본 DOCX 월간일지 회기 날짜도 날짜만 출력한다.
+  - 기본 DOCX 결제 내역을 표에서 텍스트 문단 목록으로 변경하고 치료 결과 뒤 최하단에 배치했다.
+  - 연간/월간 기본 DOCX 정보표의 소속학교 헤더에 `(유치원)`을 반영했다.
+- `src/utils/monthlyTemplateExport.ts`
+  - 샘플 템플릿 자동 적용 시 월간 회기 날짜 placeholder와 의미 기반 표 채우기도 날짜만 사용하도록 변경했다.
+- `src/components/AnnualPlan.tsx`
+  - 샘플 연간 계획표 구조와 맞도록 첫 번째 열 헤더를 `년월`에서 `월`로 변경했다.
+
+Sample form recheck:
+- 연간계획서 React form: 제목, 결재란, `학생명 / 생년월일 / 소속 학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`, 치료 일정 세부 항목, `현행 수준 및 특성`, `장기 치료 목표`, `월 / 단기 목표(월 목표) / 치료 내용 / 비고` 구조 확인.
+- 월간일지 React form: 제목, 결재란, `학생명 / 생년월일 / 소속학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`, 현행 수준, 월 치료 목표, 회기별 일지, 치료 결과, 최하단 결제 내역 텍스트 구조 확인.
+- 기본 DOCX export: React 기본 양식의 연간/월간 주요 헤더와 월간 결제 내역 배치를 동일하게 맞춤.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Run `git diff --check && npm run lint && npm run build` after any further edit.
+- If visual verification is needed, open `http://localhost:3000`, select a student/month with payment records, and confirm 월간일지 bottom `결제 내역` is text-only and below `치료 결과`.

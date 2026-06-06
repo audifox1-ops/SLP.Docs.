@@ -213,7 +213,7 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
         <table className="w-full border-collapse text-[0.75rem]">
           <thead>
             <tr>
-              <th className="border-b border-r border-black p-1 w-16 text-center">년월</th>
+              <th className="border-b border-r border-black p-1 w-16 text-center">월</th>
               <th className="border-b border-r border-black p-1 text-center">단기 목표(월 목표)</th>
               <th className="border-b border-r border-black p-1 text-center">치료 내용</th>
               <th className="border-b border-black p-1 w-14 text-center">비고</th>

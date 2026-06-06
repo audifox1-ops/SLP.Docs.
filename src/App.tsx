@@ -1939,7 +1939,7 @@ export default function App() {
         }
         monthly.sessions = mergedSessions;
       } else {
-        // 결제 기록 없으면 AI 날짜에 수업시간만 추가
+        // 결제 기록 없으면 AI 날짜를 월간일지 날짜 형식으로 정리
         monthly.sessions = monthly.sessions.map(session => {
           if (!session.date) return session;
           if (session.date.includes('(')) return session;
@@ -2167,25 +2167,16 @@ export default function App() {
     return `${fmt(bestSlot)}~${fmt(bestSlot + 40)}`;
   };
 
-  // 날짜 문자열 포맷: M/D(요일)\n수업시간  — 컴포넌트 레벨에서 공유
+  // 월간일지 날짜 셀 포맷: M/D(요일)
   const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
-  const formatSessionDate = (dateStr: string, txTime?: string, studentName?: string): string => {
+  const formatSessionDate = (dateStr: string, _txTime?: string, _studentName?: string): string => {
     const normDateStr = normalizeDateStr(dateStr);
     const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
     if (match) {
       const month = parseInt(match[2]);
       const day = parseInt(match[3]);
       const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
-      const base = `${month}/${day}(${dayName})`;
-
-      const targetName = studentName || selectedStudent?.name || '';
-      const currentStudentInfo = studentInfos.find(info => info.name === targetName);
-      const time = getSessionTime(currentStudentInfo, normDateStr, txTime || '');
-
-      if (time && time !== '정보 없음' && time !== '') {
-        return `${base}\n${time}`;
-      }
-      return base;
+      return `${month}/${day}(${dayName})`;
     }
     return normDateStr;
   };
@@ -3552,7 +3543,6 @@ export default function App() {
                                 isEditing={isEditing}
                                 onUpdate={(newData) => setMonthlyData(newData)}
                                 paymentRecords={selectedMonthlyPaymentRecords}
-                                formatPaymentSessionDate={(record) => formatSessionDate(record.transactionDate, record.transactionTime || '', selectedStudent.name)}
                                 onSyncPaymentDates={syncMonthlySessionsToPaymentRecords}
                               />
                             </>
