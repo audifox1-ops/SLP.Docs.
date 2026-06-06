@@ -23,11 +23,13 @@ function parseDateCell(dateStr: string): { month: number; day: number } {
   };
 }
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
 /** 날짜 → 셀 표시 문자열 생성 */
 function buildDateCell(year: number, month: number, day: number): string {
   void year;
   if (!month || !day) return '';
-  return `${month}/${day}`;
+  return `${pad2(month)}/${pad2(day)}`;
 }
 
 const formatScheduleFrequency = (value?: string) => {
@@ -70,7 +72,9 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
 const formatSessionDateOnly = (value?: string) => {
   const text = String(value || '').trim();
   if (!text) return '';
-  return text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim();
+  const dateText = text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim();
+  const match = dateText.match(/(\d{1,2})\/(\d{1,2})/);
+  return match ? `${pad2(Number(match[1]))}/${pad2(Number(match[2]))}` : dateText;
 };
 
 const formatPaymentParts = (record: PaymentRecord, idx: number) => ({
@@ -181,6 +185,7 @@ export const MonthlyJournal: React.FC<Props> = ({
   onSyncPaymentDates,
 }) => {
   const [editingDateIdx, setEditingDateIdx] = useState<number | null>(null);
+  const monthLabel = pad2(month);
   const monthlyTreatmentArea = student.monthlyAreas?.[month] || student.treatmentArea;
   const effectiveStudent = applyDocumentStudentOverrides(student, data.studentOverrides, monthlyTreatmentArea);
 
@@ -249,8 +254,8 @@ export const MonthlyJournal: React.FC<Props> = ({
         <tbody>
           <tr>
             <td className="text-center align-bottom pb-2">
-              <h2 className="text-xl font-bold tracking-[1px] inline-block border-b-2 border-black pb-1">
-                {year}. 교육청 치료지원(마중물) 대상 개별 치료 일지({month}월)
+              <h2 className="text-xl font-bold tracking-[1px] inline-block">
+                {year}. 교육청 치료지원 대상 개별 치료 일지({monthLabel}월)
               </h2>
             </td>
             <td className="w-32 align-top">
@@ -368,7 +373,7 @@ export const MonthlyJournal: React.FC<Props> = ({
 
       {/* 치료 목표 */}
       <div className="flex border border-black mb-2">
-        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 목표</div>
+        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({monthLabel})월 치료목표</div>
         <div className={`p-1.5 px-3 text-[0.75rem] leading-tight flex-1 ${isEditing ? 'min-h-[130px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea
@@ -516,7 +521,7 @@ export const MonthlyJournal: React.FC<Props> = ({
 
       {/* 치료 결과 */}
       <div className="flex border border-black">
-        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({month})월 치료 결과</div>
+        <div className=" p-1 font-bold border-r border-black w-24 flex items-center justify-center text-[0.8rem]">({monthLabel})월 치료결과</div>
         <div className={`p-1.5 px-3 text-[0.75rem] leading-tight flex-1 ${isEditing ? 'min-h-[130px]' : 'min-h-[30px]'}`}>
           {isEditing ? (
             <textarea

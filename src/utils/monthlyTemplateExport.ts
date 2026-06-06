@@ -116,8 +116,14 @@ const sanitizeTemplateValue = (value: string | number | undefined | null) => (
   value === undefined || value === null ? '' : String(value)
 );
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
 const sanitizeTemplateDateOnly = (value: string | number | undefined | null) => (
-  sanitizeTemplateValue(value).split(/\n/)[0].replace(/\([^)]*\)/g, '').trim()
+  (() => {
+    const dateText = sanitizeTemplateValue(value).split(/\n/)[0].replace(/\([^)]*\)/g, '').trim();
+    const match = dateText.match(/(\d{1,2})\/(\d{1,2})/);
+    return match ? `${pad2(Number(match[1]))}/${pad2(Number(match[2]))}` : dateText;
+  })()
 );
 
 const escapeXml = (value: string) => (
@@ -378,10 +384,10 @@ const fillDescriptionRows = (rows: Element[][], data: TemplateData) => {
     } else if (label.includes('장기치료목표')) {
       changes += setCellsAfter(cells, 0, data.annualLongTermGoalsText as string || data.longTermGoalsText as string);
     } else if (label.includes('월치료목표')) {
-      if (selectedMonth) changes += setCellText(cells[0], `( ${selectedMonth} )월 치료 목표`);
+      if (selectedMonth) changes += setCellText(cells[0], `(${pad2(selectedMonth)})월 치료목표`);
       changes += setCellsAfter(cells, 0, data.monthlyGoal as string);
     } else if (label.includes('월치료결과')) {
-      if (selectedMonth) changes += setCellText(cells[0], `( ${selectedMonth} )월 치료 결과`);
+      if (selectedMonth) changes += setCellText(cells[0], `(${pad2(selectedMonth)})월 치료결과`);
       changes += setCellsAfter(cells, 0, data.monthlyResult as string || data.result as string);
     }
   });
@@ -547,6 +553,7 @@ export const createMonthlyTemplateData = (
 ) => {
   const treatmentArea = student.monthlyAreas?.[selectedMonth] || student.treatmentArea;
   const documentStudent = applyDocumentStudentOverrides(student, monthlyData.studentOverrides, treatmentArea);
+  const selectedMonthLabel = pad2(selectedMonth);
   const sessions = monthlyData.sessions.map((session, index) => ({
     index: String(index + 1),
     date: sanitizeTemplateDateOnly(session.date),
@@ -556,9 +563,9 @@ export const createMonthlyTemplateData = (
   }));
 
   const data: Record<string, string | typeof sessions> = {
-    title: `${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`,
+    title: `${selectedYear}. 교육청 치료지원 대상 개별 치료 일지(${selectedMonthLabel}월)`,
     year: String(selectedYear),
-    month: String(selectedMonth),
+    month: selectedMonthLabel,
     studentName: sanitizeTemplateValue(documentStudent.name),
     birthDate: sanitizeTemplateValue(documentStudent.birthDate),
     school: sanitizeTemplateValue(documentStudent.school),

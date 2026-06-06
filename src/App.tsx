@@ -2169,13 +2169,13 @@ export default function App() {
     return `${fmt(bestSlot)}~${fmt(bestSlot + 40)}`;
   };
 
-  // 월간일지 날짜 셀 포맷: M/D
+  // 월간일지 날짜 셀 포맷: MM/DD
   const formatSessionDate = (dateStr: string, _txTime?: string, _studentName?: string): string => {
     const normDateStr = normalizeDateStr(dateStr);
     const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
     if (match) {
-      const month = parseInt(match[2]);
-      const day = parseInt(match[3]);
+      const month = String(parseInt(match[2])).padStart(2, '0');
+      const day = String(parseInt(match[3])).padStart(2, '0');
       return `${month}/${day}`;
     }
     return normDateStr.replace(/\([^)]*\)/g, '').trim();

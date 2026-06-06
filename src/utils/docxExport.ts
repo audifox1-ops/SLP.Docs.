@@ -32,6 +32,8 @@ const formatScheduleFrequency = (value?: string) => {
   return text.includes('회') ? text : `주 ${text} 회`;
 };
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
 const formatPaymentDate = (value?: string) => {
   const text = String(value || '').trim();
   const match = text.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
@@ -56,7 +58,9 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
 const formatSessionDateOnly = (value?: string) => {
   const text = String(value || '').trim();
   if (!text) return '';
-  return sanitizeText(text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim());
+  const dateText = text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim();
+  const match = dateText.match(/(\d{1,2})\/(\d{1,2})/);
+  return sanitizeText(match ? `${pad2(Number(match[1]))}/${pad2(Number(match[2]))}` : dateText);
 };
 
 const formatPaymentLine = (record: PaymentRecord, idx: number) => {
@@ -172,6 +176,7 @@ export const generateMonthlyWordSection = (
   const monthlyTreatmentArea = selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea;
   const documentStudent = applyDocumentStudentOverrides(selectedStudent, monthlyData.studentOverrides, monthlyTreatmentArea);
   const therapyPeriod = monthlyData.therapyPeriod || `${selectedYear}.3.~`;
+  const selectedMonthLabel = pad2(selectedMonth);
 
   return {
     properties: {
@@ -189,7 +194,7 @@ export const generateMonthlyWordSection = (
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
-            text: sanitizeText(`${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`),
+            text: sanitizeText(`${selectedYear}. 교육청 치료지원 대상 개별 치료 일지(${selectedMonthLabel}월)`),
             bold: true,
             size: 32,
           }),
@@ -241,7 +246,7 @@ export const generateMonthlyWordSection = (
           }),
           new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `(${selectedMonth})월 치료 목표`, bold: true })] })], shading: { fill: "F1F5F9" }, borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `(${selectedMonthLabel})월 치료목표`, bold: true })] })], shading: { fill: "F1F5F9" }, borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(monthlyData.monthlyGoal) })], borders }),
             ],
           }),
@@ -276,7 +281,7 @@ export const generateMonthlyWordSection = (
         rows: [
           new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "치료 결과", bold: true })] })], shading: { fill: "F1F5F9" }, borders, width: { size: 20, type: WidthType.PERCENTAGE } }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `(${selectedMonthLabel})월 치료결과`, bold: true })] })], shading: { fill: "F1F5F9" }, borders, width: { size: 20, type: WidthType.PERCENTAGE } }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(monthlyData.result) })], borders }),
             ],
           }),

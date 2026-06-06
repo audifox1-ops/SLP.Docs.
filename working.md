@@ -324,3 +324,39 @@ Verification:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - In the UI, select edit mode and confirm annual/monthly basic fields are editable, monthly dates show no weekday, and bottom payment rows align by 회차/결제일/시간/영역/금액.
+
+## 2026-06-07 Monthly Journal Sample Refinement
+
+Objective:
+- 사용자가 월간일지 양식이 아직 만족스럽지 않다고 했으므로, 앞선 요청을 유지하면서 실제 샘플 월간일지 HWP를 다시 확인해 기본 월간일지 표시를 더 맞춘다.
+
+Actual sample checked:
+- Local sample: `/Users/audifox/Downloads/차윤우 월간일지25.6.hwp`
+- Extracted title: `2025. 교육청 치료지원 대상 개별 치료 일지(03월)`
+- Extracted info table: `학생명 / 생년월일 / 소속학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`
+- Extracted schedule rows: `치료 기간 / 치료사 / 요일 / 시간 / 횟수`
+- Extracted section labels: `현행 수준`, `(03)월 치료목표`, `날짜 / 치료 내용 / 아동 반응 / 비고(부모 상담)`, `(03)월 치료결과`
+- Extracted date style: `03/06(목) 14:50~15:30`; user requested weekday/time removal, so implementation keeps sample's 2-digit month/day but omits weekday/time.
+
+Change:
+- `src/components/MonthlyJournal.tsx`
+  - Title changed to `교육청 치료지원 대상 개별 치료 일지(03월)` style, removing `(마중물)` from monthly title.
+  - Month labels now use 2 digits: `03월`, `(03)월 치료목표`, `(03)월 치료결과`.
+  - Date editor and display now use zero-padded `MM/DD` such as `03/06`.
+  - Monthly title underline removed to better match the sample title presentation.
+- `src/App.tsx`
+  - Generated/synced monthly session dates now use `MM/DD`.
+- `src/utils/docxExport.ts`
+  - Default DOCX monthly title/goal/result labels now use the same sample month style and no `(마중물)` in the monthly title.
+  - Default DOCX monthly session date output now zero-pads old and new dates.
+- `src/utils/monthlyTemplateExport.ts`
+  - Template monthly title, month placeholder, semantic labels, and session dates now use the same sample month/date style.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, confirm the monthly journal title reads `교육청 치료지원 대상 개별 치료 일지(03월)` style, date cells read `MM/DD`, and labels read `(MM)월 치료목표/치료결과`.
