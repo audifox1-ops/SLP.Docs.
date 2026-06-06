@@ -284,3 +284,43 @@ Verification:
 Next if interrupted:
 - Run `git diff --check && npm run lint && npm run build` after any further edit.
 - If visual verification is needed, open `http://localhost:3000`, select a student/month with payment records, and confirm 월간일지 bottom `결제 내역` is text-only and below `치료 결과`.
+
+## 2026-06-06 Editable Form Fields And Date Cleanup
+
+Objective:
+- 월간일지 날짜에서 요일 표시를 제거한다.
+- 월간일지 최하단 결제 내역을 표가 아닌 텍스트 열 형태로 최대한 정렬한다.
+- 연간계획서와 월간일지의 기본 정보/치료 일정 등 문서 영역을 편집 가능하게 한다.
+- 연간계획서 년월 설정 방식을 기존 치료 일정 셀 내부 방식에서 별도 편집 도구 방식으로 변경한다.
+
+Change:
+- `src/types.ts`
+  - 연간/월간 문서별 학생 정보 override를 저장하는 `DocumentStudentOverrides`를 추가했다.
+  - 연간 계획표 `비고` 편집을 위해 월별 목표에 `note` 필드를 추가했다.
+- `src/utils/documentStudentOverrides.ts`
+  - 학생 기본 정보와 문서별 override를 합치는 공통 helper를 추가했다.
+- `src/App.tsx`
+  - 월간일지 날짜 생성 형식을 `M/D`로 변경하고 기존 요일 문자열을 제거하도록 정리했다.
+- `src/components/AnnualPlan.tsx`
+  - 학생명, 생년월일, 학교, 장애 유형, 치료 영역, 치료사, 바우처 영역, 요일, 시간, 횟수를 편집 가능하게 했다.
+  - 연간계획서 년월 설정을 별도 `연간계획서 년월 설정` 편집 도구로 이동했다.
+  - 연간 계획표 `비고` 열을 편집 가능하게 했다.
+- `src/components/MonthlyJournal.tsx`
+  - 날짜 편집/표시를 `M/D`로 변경하고 기존 저장값의 요일 표시도 숨긴다.
+  - 학생명, 생년월일, 학교, 장애 유형, 치료 영역, 치료사, 요일, 시간, 횟수를 편집 가능하게 했다.
+  - 결제 내역을 텍스트 기반 grid 열로 정렬했다.
+- `src/utils/docxExport.ts`
+  - 기본 DOCX 출력이 문서별 override, 날짜 `M/D`, 연간 `비고`, 결제 내역 텍스트 열을 반영하도록 변경했다.
+- `src/utils/monthlyTemplateExport.ts`
+  - 샘플 템플릿 자동 적용도 문서별 override, 날짜 `M/D`, 연간 `비고`를 반영하도록 변경했다.
+- `src/utils/annualPlanPeriod.ts`
+  - 연간 기간 변경 시 월별 `비고` 내용을 보존한다.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, select edit mode and confirm annual/monthly basic fields are editable, monthly dates show no weekday, and bottom payment rows align by 회차/결제일/시간/영역/금액.

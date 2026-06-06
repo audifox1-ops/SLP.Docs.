@@ -66,12 +66,26 @@ export interface Student {
   }[];
 }
 
+export interface DocumentStudentOverrides {
+  name?: string;
+  birthDate?: string;
+  school?: string;
+  disabilityType?: string;
+  treatmentArea?: string;
+  therapistName?: string;
+  voucherArea?: string;
+  scheduleDay?: string;
+  scheduleTime?: string;
+  scheduleFrequency?: string;
+}
+
 export interface AnnualPlanData {
   startYear?: number;
   startMonth?: number;
   endYear?: number;
   endMonth?: number;
   therapyPeriod?: string;
+  studentOverrides?: DocumentStudentOverrides;
   currentLevel: string[];
   longTermGoals: string[];
   monthlyGoals: {
@@ -80,12 +94,14 @@ export interface AnnualPlanData {
     goal: string;
     content: string;
     area?: string;
+    note?: string;
   }[];
 }
 
 export interface MonthlyJournalData {
   currentLevel: string;
   monthlyGoal: string;
+  studentOverrides?: DocumentStudentOverrides;
   sessions: {
     date: string;
     content: string;

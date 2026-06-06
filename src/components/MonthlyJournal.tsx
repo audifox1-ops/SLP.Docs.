@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, RefreshCw, Rows3, Trash2, Pencil } from 'lucide-react';
-import { Student, MonthlyJournalData, PaymentRecord } from '../types';
+import { Student, MonthlyJournalData, PaymentRecord, DocumentStudentOverrides } from '../types';
+import { applyDocumentStudentOverrides } from '../utils/documentStudentOverrides';
 
 interface Props {
   student: Student;
@@ -23,11 +24,10 @@ function parseDateCell(dateStr: string): { month: number; day: number } {
 }
 
 /** 날짜 → 셀 표시 문자열 생성 */
-const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
 function buildDateCell(year: number, month: number, day: number): string {
+  void year;
   if (!month || !day) return '';
-  const dayName = DAY_NAMES[new Date(year, month - 1, day).getDay()];
-  return `${month}/${day}(${dayName})`;
+  return `${month}/${day}`;
 }
 
 const formatScheduleFrequency = (value?: string) => {
@@ -70,17 +70,16 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
 const formatSessionDateOnly = (value?: string) => {
   const text = String(value || '').trim();
   if (!text) return '';
-  return text.split(/\n/)[0].trim();
+  return text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim();
 };
 
-const formatPaymentLine = (record: PaymentRecord, idx: number) => {
-  const time = formatPaymentTime(record.transactionTime);
-  const timeText = time === '-' ? '' : ` ${time}`;
-  const areaText = record.treatmentArea ? ` / ${record.treatmentArea}` : '';
-  const amount = formatPaymentAmount(record.amount);
-  const amountText = amount === '-' ? '' : ` / ${amount}`;
-  return `${idx + 1}회차: ${formatPaymentDate(record.transactionDate)}${timeText}${areaText}${amountText}`;
-};
+const formatPaymentParts = (record: PaymentRecord, idx: number) => ({
+  index: `${idx + 1}회차`,
+  date: formatPaymentDate(record.transactionDate),
+  time: formatPaymentTime(record.transactionTime),
+  area: record.treatmentArea || '-',
+  amount: formatPaymentAmount(record.amount),
+});
 
 /** 날짜 인라인 편집 팝업 */
 interface DateEditorProps {
@@ -182,10 +181,34 @@ export const MonthlyJournal: React.FC<Props> = ({
   onSyncPaymentDates,
 }) => {
   const [editingDateIdx, setEditingDateIdx] = useState<number | null>(null);
+  const monthlyTreatmentArea = student.monthlyAreas?.[month] || student.treatmentArea;
+  const effectiveStudent = applyDocumentStudentOverrides(student, data.studentOverrides, monthlyTreatmentArea);
 
   const handleChange = (field: keyof MonthlyJournalData, value: any) => {
     if (onUpdate) onUpdate({ ...data, [field]: value });
   };
+
+  const handleStudentOverrideChange = (field: keyof DocumentStudentOverrides, value: string) => {
+    if (!onUpdate) return;
+    onUpdate({
+      ...data,
+      studentOverrides: {
+        ...data.studentOverrides,
+        [field]: value
+      }
+    });
+  };
+
+  const renderOverrideInput = (field: keyof DocumentStudentOverrides, value: string, className = '') => (
+    isEditing ? (
+      <input
+        type="text"
+        className={`w-full bg-indigo-50/30 border-none outline-none text-center font-bold ${className}`}
+        value={value}
+        onChange={(e) => handleStudentOverrideChange(field, e.target.value)}
+      />
+    ) : value
+  );
 
   const handleSessionChange = (idx: number, field: string, value: any) => {
     if (onUpdate) {
@@ -263,12 +286,20 @@ export const MonthlyJournal: React.FC<Props> = ({
         </thead>
         <tbody>
           <tr className="h-12">
-            <td className="border border-black p-1 text-center font-bold">{student.name}</td>
-            <td className="border border-black p-1 text-center">{student.birthDate}</td>
-            <td className="border border-black p-1 text-center">{student.school}</td>
-            <td className="border border-black p-1 text-center">{student.disabilityType}</td>
             <td className="border border-black p-1 text-center font-bold">
-              {student.monthlyAreas?.[month] || student.treatmentArea}
+              {renderOverrideInput('name', effectiveStudent.name)}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('birthDate', effectiveStudent.birthDate, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('school', effectiveStudent.school, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('disabilityType', effectiveStudent.disabilityType, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center font-bold">
+              {renderOverrideInput('treatmentArea', effectiveStudent.treatmentArea)}
             </td>
             <td className="border border-black p-0">
               <table className="w-full h-full border-collapse">
@@ -290,19 +321,27 @@ export const MonthlyJournal: React.FC<Props> = ({
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black ">치료사</td>
-                    <td className="p-1 border-b border-black font-bold">{student.therapistName}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('therapistName', effectiveStudent.therapistName, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black ">요일</td>
-                    <td className="p-1 border-b border-black font-bold">{student.schedule.day}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('scheduleDay', effectiveStudent.schedule.day, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black ">시간</td>
-                    <td className="p-1 border-b border-black font-bold">{student.schedule.time}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('scheduleTime', effectiveStudent.schedule.time, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-r border-black ">횟수</td>
-                    <td className="p-1 font-bold">{formatScheduleFrequency(student.schedule.frequency)}</td>
+                    <td className="p-1 font-bold">
+                      {isEditing ? renderOverrideInput('scheduleFrequency', effectiveStudent.schedule.frequency, 'text-left') : formatScheduleFrequency(effectiveStudent.schedule.frequency)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -494,11 +533,28 @@ export const MonthlyJournal: React.FC<Props> = ({
         <div className="font-bold">결제 내역</div>
         {paymentRecords.length > 0 ? (
           <div className="space-y-0.5">
-            {paymentRecords.map((record, idx) => (
-              <div key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}>
-                {formatPaymentLine(record, idx)}
-              </div>
-            ))}
+            <div className="grid grid-cols-[3rem_6.8rem_4.4rem_minmax(5.5rem,1fr)_5.5rem] gap-x-2 border-b border-black/20 pb-0.5 font-bold">
+              <span>회차</span>
+              <span>결제일</span>
+              <span>시간</span>
+              <span>영역</span>
+              <span className="text-right">금액</span>
+            </div>
+            {paymentRecords.map((record, idx) => {
+              const parts = formatPaymentParts(record, idx);
+              return (
+                <div
+                  key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}
+                  className="grid grid-cols-[3rem_6.8rem_4.4rem_minmax(5.5rem,1fr)_5.5rem] gap-x-2"
+                >
+                  <span>{parts.index}</span>
+                  <span>{parts.date}</span>
+                  <span>{parts.time}</span>
+                  <span>{parts.area}</span>
+                  <span className="text-right">{parts.amount}</span>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="text-slate-500">선택한 월에 업로드된 결제 이력이 없습니다.</div>

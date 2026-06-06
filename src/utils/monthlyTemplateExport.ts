@@ -2,6 +2,7 @@ import { saveAs } from 'file-saver';
 import { AnnualPlanData, DocumentTemplateSample, MonthlyJournalData, MonthlyJournalTemplateSample, Student } from '../types';
 import { formatAnnualPlanPeriod, normalizeAnnualPlanPeriod } from './annualPlanPeriod';
 import { loadTemplateFileFromChunks } from '../services/templateFileService';
+import { applyDocumentStudentOverrides } from './documentStudentOverrides';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const HWPX_MIME = 'application/vnd.hancom.hwpx';
@@ -66,6 +67,7 @@ export const ANNUAL_FIXED_MONTH_PLACEHOLDER_EXAMPLES = [
   'month1Goal',
   'month1Content',
   'month1Area',
+  'month1Note',
 ] as const;
 
 export const COMBINED_TEMPLATE_PLACEHOLDERS = [
@@ -115,7 +117,7 @@ const sanitizeTemplateValue = (value: string | number | undefined | null) => (
 );
 
 const sanitizeTemplateDateOnly = (value: string | number | undefined | null) => (
-  sanitizeTemplateValue(value).split(/\n/)[0].trim()
+  sanitizeTemplateValue(value).split(/\n/)[0].replace(/\([^)]*\)/g, '').trim()
 );
 
 const escapeXml = (value: string) => (
@@ -408,6 +410,7 @@ const fillAnnualGoalRows = (rows: Element[][], data: TemplateData) => {
     changes += setCellText(cells[0], `${month}월`);
     changes += setCellText(cells[1], goal.goal);
     changes += setCellText(cells[2], goal.content);
+    if (cells[3]) changes += setCellText(cells[3], goal.note || '');
   });
 
   return changes;
@@ -543,6 +546,7 @@ export const createMonthlyTemplateData = (
   selectedMonth: number
 ) => {
   const treatmentArea = student.monthlyAreas?.[selectedMonth] || student.treatmentArea;
+  const documentStudent = applyDocumentStudentOverrides(student, monthlyData.studentOverrides, treatmentArea);
   const sessions = monthlyData.sessions.map((session, index) => ({
     index: String(index + 1),
     date: sanitizeTemplateDateOnly(session.date),
@@ -555,16 +559,16 @@ export const createMonthlyTemplateData = (
     title: `${selectedYear}. 교육청 치료지원(마중물) 대상 개별 치료 일지(${selectedMonth}월)`,
     year: String(selectedYear),
     month: String(selectedMonth),
-    studentName: sanitizeTemplateValue(student.name),
-    birthDate: sanitizeTemplateValue(student.birthDate),
-    school: sanitizeTemplateValue(student.school),
-    disabilityType: sanitizeTemplateValue(student.disabilityType),
-    treatmentArea: sanitizeTemplateValue(treatmentArea),
+    studentName: sanitizeTemplateValue(documentStudent.name),
+    birthDate: sanitizeTemplateValue(documentStudent.birthDate),
+    school: sanitizeTemplateValue(documentStudent.school),
+    disabilityType: sanitizeTemplateValue(documentStudent.disabilityType),
+    treatmentArea: sanitizeTemplateValue(documentStudent.treatmentArea),
     therapyPeriod: sanitizeTemplateValue(monthlyData.therapyPeriod ?? `${selectedYear}.3.~`),
-    therapistName: sanitizeTemplateValue(student.therapistName),
-    scheduleDay: sanitizeTemplateValue(student.schedule.day),
-    scheduleTime: sanitizeTemplateValue(student.schedule.time),
-    scheduleFrequency: sanitizeTemplateValue(student.schedule.frequency),
+    therapistName: sanitizeTemplateValue(documentStudent.therapistName),
+    scheduleDay: sanitizeTemplateValue(documentStudent.schedule.day),
+    scheduleTime: sanitizeTemplateValue(documentStudent.schedule.time),
+    scheduleFrequency: sanitizeTemplateValue(documentStudent.schedule.frequency),
     currentLevel: sanitizeTemplateValue(monthlyData.currentLevel),
     monthlyGoal: sanitizeTemplateValue(monthlyData.monthlyGoal),
     result: sanitizeTemplateValue(monthlyData.result),
@@ -591,6 +595,7 @@ export const createAnnualTemplateData = (
   annualData: AnnualPlanData,
   selectedYear: number
 ) => {
+  const documentStudent = applyDocumentStudentOverrides(student, annualData.studentOverrides);
   const annualPeriod = normalizeAnnualPlanPeriod(annualData, selectedYear);
   const monthlyGoals = annualData.monthlyGoals.map(goal => ({
     year: String(goal.year || selectedYear),
@@ -599,31 +604,32 @@ export const createAnnualTemplateData = (
     yearMonth: `${goal.year || selectedYear}.${goal.month}월`,
     goal: sanitizeTemplateValue(goal.goal),
     content: sanitizeTemplateValue(goal.content),
-    area: sanitizeTemplateValue(goal.area || student.monthlyAreas?.[goal.month] || student.treatmentArea),
+    area: sanitizeTemplateValue(goal.area || documentStudent.monthlyAreas?.[goal.month] || documentStudent.treatmentArea),
+    note: sanitizeTemplateValue(goal.note),
   }));
 
   const data: TemplateData = {
     title: `${selectedYear}. 교육청 치료지원(마중물) 대상 연간 계획서`,
     year: String(selectedYear),
-    studentName: sanitizeTemplateValue(student.name),
-    birthDate: sanitizeTemplateValue(student.birthDate),
-    school: sanitizeTemplateValue(student.school),
-    disabilityType: sanitizeTemplateValue(student.disabilityType),
-    treatmentArea: sanitizeTemplateValue(student.treatmentArea),
+    studentName: sanitizeTemplateValue(documentStudent.name),
+    birthDate: sanitizeTemplateValue(documentStudent.birthDate),
+    school: sanitizeTemplateValue(documentStudent.school),
+    disabilityType: sanitizeTemplateValue(documentStudent.disabilityType),
+    treatmentArea: sanitizeTemplateValue(documentStudent.treatmentArea),
     therapyPeriod: formatAnnualPlanPeriod(annualData, selectedYear),
     startYear: String(annualPeriod.startYear),
     startMonth: String(annualPeriod.startMonth),
     endYear: String(annualPeriod.endYear),
     endMonth: String(annualPeriod.endMonth),
-    therapistName: sanitizeTemplateValue(student.therapistName),
-    scheduleDay: sanitizeTemplateValue(student.schedule.day),
-    scheduleTime: sanitizeTemplateValue(student.schedule.time),
-    scheduleFrequency: sanitizeTemplateValue(student.schedule.frequency),
+    therapistName: sanitizeTemplateValue(documentStudent.therapistName),
+    scheduleDay: sanitizeTemplateValue(documentStudent.schedule.day),
+    scheduleTime: sanitizeTemplateValue(documentStudent.schedule.time),
+    scheduleFrequency: sanitizeTemplateValue(documentStudent.schedule.frequency),
     currentLevelText: annualData.currentLevel.map(sanitizeTemplateValue).join('\n'),
     longTermGoalsText: annualData.longTermGoals.map(sanitizeTemplateValue).join('\n'),
     monthlyGoals,
     monthlyGoalsText: monthlyGoals
-      .map(goal => `${goal.month} ${goal.area}\n목표: ${goal.goal}\n내용: ${goal.content}`)
+      .map(goal => `${goal.month} ${goal.area}\n목표: ${goal.goal}\n내용: ${goal.content}${goal.note ? `\n비고: ${goal.note}` : ''}`)
       .join('\n\n'),
   };
 
@@ -634,7 +640,8 @@ export const createAnnualTemplateData = (
     data[`month${monthNumber}YearMonth`] = goal ? `${goal.year || selectedYear}.${goal.month}월` : '';
     data[`month${monthNumber}Goal`] = goal?.goal || '';
     data[`month${monthNumber}Content`] = goal?.content || '';
-    data[`month${monthNumber}Area`] = goal?.area || student.monthlyAreas?.[monthNumber] || student.treatmentArea || '';
+    data[`month${monthNumber}Area`] = goal?.area || documentStudent.monthlyAreas?.[monthNumber] || documentStudent.treatmentArea || '';
+    data[`month${monthNumber}Note`] = goal?.note || '';
   });
 
   return data;

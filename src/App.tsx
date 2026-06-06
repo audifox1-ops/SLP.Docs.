@@ -1210,7 +1210,9 @@ export default function App() {
       const paymentLabel = payment
         ? formatSessionDate(payment.transactionDate, payment.transactionTime || '', selectedStudent.name).replace('\n', ' · ')
         : '-';
-      const sessionLabel = session?.date ? session.date.replace('\n', ' · ') : '-';
+      const sessionLabel = session?.date
+        ? session.date.split('\n')[0].replace(/\([^)]*\)/g, '').trim()
+        : '-';
 
       return {
         index: idx + 1,
@@ -2167,18 +2169,16 @@ export default function App() {
     return `${fmt(bestSlot)}~${fmt(bestSlot + 40)}`;
   };
 
-  // 월간일지 날짜 셀 포맷: M/D(요일)
-  const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+  // 월간일지 날짜 셀 포맷: M/D
   const formatSessionDate = (dateStr: string, _txTime?: string, _studentName?: string): string => {
     const normDateStr = normalizeDateStr(dateStr);
     const match = normDateStr.match(/(\d{4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
     if (match) {
       const month = parseInt(match[2]);
       const day = parseInt(match[3]);
-      const dayName = DAY_NAMES[new Date(parseInt(match[1]), month - 1, day).getDay()];
-      return `${month}/${day}(${dayName})`;
+      return `${month}/${day}`;
     }
-    return normDateStr;
+    return normDateStr.replace(/\([^)]*\)/g, '').trim();
   };
 
   const fetchData = async (student: Student, toneToUse: JournalTone = journalTone) => {

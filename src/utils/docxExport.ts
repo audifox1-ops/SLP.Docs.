@@ -2,6 +2,7 @@ import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, Width
 import { saveAs } from 'file-saver';
 import { Student, AnnualPlanData, MonthlyJournalData, PaymentRecord } from '../types';
 import { formatAnnualPlanPeriod } from './annualPlanPeriod';
+import { applyDocumentStudentOverrides } from './documentStudentOverrides';
 
 // 특수 문자 및 제어 문자 제거 (워드 파일 깨짐 방지)
 const sanitizeText = (text: string | undefined): string => {
@@ -55,19 +56,18 @@ const formatPaymentAmount = (value: PaymentRecord['amount']) => {
 const formatSessionDateOnly = (value?: string) => {
   const text = String(value || '').trim();
   if (!text) return '';
-  return sanitizeText(text.split(/\n/)[0].trim());
+  return sanitizeText(text.split(/\n/)[0].replace(/\([^)]*\)/g, '').trim());
 };
 
 const formatPaymentLine = (record: PaymentRecord, idx: number) => {
   const time = formatPaymentTime(record.transactionTime);
-  const timeText = time === '-' ? '' : ` ${time}`;
-  const areaText = record.treatmentArea ? ` / ${sanitizeText(record.treatmentArea)}` : '';
+  const area = record.treatmentArea ? sanitizeText(record.treatmentArea) : '-';
   const amount = formatPaymentAmount(record.amount);
-  const amountText = amount === '-' ? '' : ` / ${amount}`;
-  return sanitizeText(`${idx + 1}회차: ${formatPaymentDate(record.transactionDate)}${timeText}${areaText}${amountText}`);
+  return sanitizeText(`${idx + 1}회차\t${formatPaymentDate(record.transactionDate)}\t${time}\t${area}\t${amount}`);
 };
 
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
+  const documentStudent = applyDocumentStudentOverrides(selectedStudent, annualData.studentOverrides);
   const therapyPeriod = formatAnnualPlanPeriod(annualData, selectedYear);
 
   return {
@@ -108,19 +108,19 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
           }),
           new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.name), bold: true })], alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.birthDate), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.school), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.disabilityType), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(documentStudent.name), bold: true })], alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.birthDate), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.school), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.disabilityType), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(documentStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ 
                 children: [
                   new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
-                  new Paragraph({ text: sanitizeText(`치료사: ${selectedStudent.therapistName}`) }),
-                  new Paragraph({ text: sanitizeText(`복지부 바우처 이용 영역: ${selectedStudent.voucherArea || selectedStudent.treatmentArea}`) }),
-                  new Paragraph({ text: sanitizeText(`요일: ${selectedStudent.schedule.day}`) }),
-                  new Paragraph({ text: sanitizeText(`시간: ${selectedStudent.schedule.time}`) }),
-                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(selectedStudent.schedule.frequency)}`) }),
+                  new Paragraph({ text: sanitizeText(`치료사: ${documentStudent.therapistName}`) }),
+                  new Paragraph({ text: sanitizeText(`복지부 바우처 이용 영역: ${documentStudent.voucherArea || documentStudent.treatmentArea}`) }),
+                  new Paragraph({ text: sanitizeText(`요일: ${documentStudent.schedule.day}`) }),
+                  new Paragraph({ text: sanitizeText(`시간: ${documentStudent.schedule.time}`) }),
+                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(documentStudent.schedule.frequency)}`) }),
                 ], 
                 borders 
               }),
@@ -153,7 +153,7 @@ export const generateAnnualWordSection = (selectedStudent: Student, annualData: 
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.year ? `${goal.year}.${goal.month}월` : `${goal.month}월`), alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.goal) })], borders }),
               new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.content) })], borders }),
-              new TableCell({ children: [new Paragraph({ text: "" })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(goal.note || '') })], borders }),
             ],
           })),
         ],
@@ -169,6 +169,8 @@ export const generateMonthlyWordSection = (
   selectedMonth: number,
   paymentRecords: PaymentRecord[] = []
 ) => {
+  const monthlyTreatmentArea = selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea;
+  const documentStudent = applyDocumentStudentOverrides(selectedStudent, monthlyData.studentOverrides, monthlyTreatmentArea);
   const therapyPeriod = monthlyData.therapyPeriod || `${selectedYear}.3.~`;
 
   return {
@@ -208,18 +210,18 @@ export const generateMonthlyWordSection = (
           }),
           new TableRow({
             children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.name), bold: true })], alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.birthDate), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.school), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ text: sanitizeText(selectedStudent.disabilityType), alignment: AlignmentType.CENTER })], borders }),
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(selectedStudent.monthlyAreas?.[selectedMonth] || selectedStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(documentStudent.name), bold: true })], alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.birthDate), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.school), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ text: sanitizeText(documentStudent.disabilityType), alignment: AlignmentType.CENTER })], borders }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sanitizeText(documentStudent.treatmentArea), bold: true })], alignment: AlignmentType.CENTER })], borders }),
               new TableCell({ 
                 children: [
                   new Paragraph({ text: sanitizeText(`치료 기간: ${therapyPeriod}`) }),
-                  new Paragraph({ text: sanitizeText(`치료사: ${selectedStudent.therapistName}`) }),
-                  new Paragraph({ text: sanitizeText(`요일: ${selectedStudent.schedule.day}`) }),
-                  new Paragraph({ text: sanitizeText(`시간: ${selectedStudent.schedule.time}`) }),
-                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(selectedStudent.schedule.frequency)}`) }),
+                  new Paragraph({ text: sanitizeText(`치료사: ${documentStudent.therapistName}`) }),
+                  new Paragraph({ text: sanitizeText(`요일: ${documentStudent.schedule.day}`) }),
+                  new Paragraph({ text: sanitizeText(`시간: ${documentStudent.schedule.time}`) }),
+                  new Paragraph({ text: sanitizeText(`횟수: ${formatScheduleFrequency(documentStudent.schedule.frequency)}`) }),
                 ], 
                 borders 
               }),
@@ -286,10 +288,16 @@ export const generateMonthlyWordSection = (
         spacing: { after: 80 },
       }),
       ...(paymentRecords.length > 0
-        ? paymentRecords.map((record, idx) => new Paragraph({
-          text: formatPaymentLine(record, idx),
-          spacing: { after: 40 },
-        }))
+        ? [
+          new Paragraph({
+            children: [new TextRun({ text: "회차\t결제일\t시간\t영역\t금액", bold: true })],
+            spacing: { after: 40 },
+          }),
+          ...paymentRecords.map((record, idx) => new Paragraph({
+            text: formatPaymentLine(record, idx),
+            spacing: { after: 40 },
+          })),
+        ]
         : [
           new Paragraph({
             text: "선택한 월에 업로드된 결제 이력이 없습니다.",

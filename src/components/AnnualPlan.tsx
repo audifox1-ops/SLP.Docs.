@@ -1,6 +1,7 @@
 import React from 'react';
-import { Student, AnnualPlanData } from '../types';
+import { Student, AnnualPlanData, DocumentStudentOverrides } from '../types';
 import { formatAnnualPlanPeriod, normalizeAnnualPlanPeriod, updateAnnualPlanPeriod } from '../utils/annualPlanPeriod';
+import { applyDocumentStudentOverrides } from '../utils/documentStudentOverrides';
 
 interface Props {
   student: Student;
@@ -17,6 +18,7 @@ const formatScheduleFrequency = (value?: string) => {
 };
 
 export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, onUpdate }) => {
+  const effectiveStudent = applyDocumentStudentOverrides(student, data.studentOverrides);
   const annualPeriod = normalizeAnnualPlanPeriod(data, year);
   const yearOptions = Array.from(new Set([
     year - 1,
@@ -33,8 +35,30 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
   };
 
   const handlePeriodChange = (field: 'startYear' | 'startMonth' | 'endYear' | 'endMonth', value: number) => {
-    if (onUpdate) onUpdate(updateAnnualPlanPeriod(data, year, student, { [field]: value }));
+    if (onUpdate) onUpdate(updateAnnualPlanPeriod(data, year, effectiveStudent, { [field]: value }));
   };
+
+  const handleStudentOverrideChange = (field: keyof DocumentStudentOverrides, value: string) => {
+    if (!onUpdate) return;
+    onUpdate({
+      ...data,
+      studentOverrides: {
+        ...data.studentOverrides,
+        [field]: value
+      }
+    });
+  };
+
+  const renderOverrideInput = (field: keyof DocumentStudentOverrides, value: string, className = '') => (
+    isEditing ? (
+      <input
+        type="text"
+        className={`w-full bg-indigo-50/30 border-none outline-none text-center font-bold ${className}`}
+        value={value}
+        onChange={(e) => handleStudentOverrideChange(field, e.target.value)}
+      />
+    ) : value
+  );
 
   const handleMonthlyChange = (idx: number, field: string, value: any) => {
     if (onUpdate) {
@@ -87,78 +111,59 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
         </thead>
         <tbody>
           <tr className="h-12">
-            <td className="border border-black p-1 text-center font-bold">{student.name}</td>
-            <td className="border border-black p-1 text-center">{student.birthDate}</td>
-            <td className="border border-black p-1 text-center">{student.school}</td>
-            <td className="border border-black p-1 text-center">{student.disabilityType}</td>
-            <td className="border border-black p-1 text-center font-bold">{student.treatmentArea}</td>
+            <td className="border border-black p-1 text-center font-bold">
+              {renderOverrideInput('name', effectiveStudent.name)}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('birthDate', effectiveStudent.birthDate, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('school', effectiveStudent.school, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center">
+              {renderOverrideInput('disabilityType', effectiveStudent.disabilityType, 'font-normal')}
+            </td>
+            <td className="border border-black p-1 text-center font-bold">
+              {renderOverrideInput('treatmentArea', effectiveStudent.treatmentArea)}
+            </td>
             <td className="border border-black p-0">
               <table className="w-full h-full border-collapse">
                 <tbody className="text-[0.65rem]">
                   <tr>
                     <td className="p-1 border-b border-r border-black w-28">치료 기간</td>
                     <td className="p-1 border-b border-black font-bold">
-                      {isEditing ? (
-                        <div className="grid grid-cols-2 gap-1 text-[0.65rem]">
-                          <label className="flex items-center gap-1">
-                            <span className="text-slate-500 font-bold">시작</span>
-                            <select
-                              className="min-w-0 flex-1 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
-                              value={annualPeriod.startYear}
-                              onChange={(e) => handlePeriodChange('startYear', Number(e.target.value))}
-                            >
-                              {yearOptions.map(option => <option key={option} value={option}>{option}</option>)}
-                            </select>
-                            <select
-                              className="w-14 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
-                              value={annualPeriod.startMonth}
-                              onChange={(e) => handlePeriodChange('startMonth', Number(e.target.value))}
-                            >
-                              {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
-                            </select>
-                          </label>
-                          <label className="flex items-center gap-1">
-                            <span className="text-slate-500 font-bold">종료</span>
-                            <select
-                              className="min-w-0 flex-1 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
-                              value={annualPeriod.endYear}
-                              onChange={(e) => handlePeriodChange('endYear', Number(e.target.value))}
-                            >
-                              {yearOptions.map(option => <option key={option} value={option}>{option}</option>)}
-                            </select>
-                            <select
-                              className="w-14 border border-indigo-200 rounded px-1 py-0.5 bg-indigo-50/30 outline-none"
-                              value={annualPeriod.endMonth}
-                              onChange={(e) => handlePeriodChange('endMonth', Number(e.target.value))}
-                            >
-                              {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
-                            </select>
-                          </label>
-                        </div>
-                      ) : (
-                        formatAnnualPlanPeriod(data, year)
-                      )}
+                      {formatAnnualPlanPeriod(data, year)}
                     </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black">치료사</td>
-                    <td className="p-1 border-b border-black font-bold">{student.therapistName}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('therapistName', effectiveStudent.therapistName, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black">복지부 바우처 이용 영역</td>
-                    <td className="p-1 border-b border-black font-bold">{student.voucherArea || student.treatmentArea}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('voucherArea', effectiveStudent.voucherArea || effectiveStudent.treatmentArea, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black">요일</td>
-                    <td className="p-1 border-b border-black font-bold">{student.schedule.day}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('scheduleDay', effectiveStudent.schedule.day, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-b border-r border-black">시간</td>
-                    <td className="p-1 border-b border-black font-bold">{student.schedule.time}</td>
+                    <td className="p-1 border-b border-black font-bold">
+                      {renderOverrideInput('scheduleTime', effectiveStudent.schedule.time, 'text-left')}
+                    </td>
                   </tr>
                   <tr>
                     <td className="p-1 border-r border-black">횟수</td>
-                    <td className="p-1 font-bold">{formatScheduleFrequency(student.schedule.frequency)}</td>
+                    <td className="p-1 font-bold">
+                      {isEditing ? renderOverrideInput('scheduleFrequency', effectiveStudent.schedule.frequency, 'text-left') : formatScheduleFrequency(effectiveStudent.schedule.frequency)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -208,6 +213,49 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
       </div>
 
       {/* 연간 계획 */}
+      {isEditing && (
+        <div className="no-print mb-2 rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 text-xs">
+          <div className="mb-2 font-black text-indigo-700">연간계획서 년월 설정</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1">
+              <span className="font-bold text-slate-600">시작</span>
+              <select
+                className="border border-indigo-200 rounded px-2 py-1 bg-white outline-none"
+                value={annualPeriod.startYear}
+                onChange={(e) => handlePeriodChange('startYear', Number(e.target.value))}
+              >
+                {yearOptions.map(option => <option key={option} value={option}>{option}년</option>)}
+              </select>
+              <select
+                className="border border-indigo-200 rounded px-2 py-1 bg-white outline-none"
+                value={annualPeriod.startMonth}
+                onChange={(e) => handlePeriodChange('startMonth', Number(e.target.value))}
+              >
+                {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
+              </select>
+            </label>
+            <span className="font-bold text-slate-400">~</span>
+            <label className="flex items-center gap-1">
+              <span className="font-bold text-slate-600">종료</span>
+              <select
+                className="border border-indigo-200 rounded px-2 py-1 bg-white outline-none"
+                value={annualPeriod.endYear}
+                onChange={(e) => handlePeriodChange('endYear', Number(e.target.value))}
+              >
+                {yearOptions.map(option => <option key={option} value={option}>{option}년</option>)}
+              </select>
+              <select
+                className="border border-indigo-200 rounded px-2 py-1 bg-white outline-none"
+                value={annualPeriod.endMonth}
+                onChange={(e) => handlePeriodChange('endMonth', Number(e.target.value))}
+              >
+                {monthOptions.map(option => <option key={option} value={option}>{option}월</option>)}
+              </select>
+            </label>
+            <span className="font-bold text-slate-600">표시: {formatAnnualPlanPeriod(data, year)}</span>
+          </div>
+        </div>
+      )}
       <div className="border border-black">
         <div className="p-0.5 px-2 font-bold border-b border-black text-[0.8rem]">연간 치료 계획</div>
         <table className="w-full border-collapse text-[0.75rem]">
@@ -247,7 +295,17 @@ export const AnnualPlan: React.FC<Props> = ({ student, data, year, isEditing, on
                     <div className="whitespace-pre-wrap break-words">{goal.content}</div>
                   )}
                 </td>
-                <td className="border-b border-black p-1"></td>
+                <td className="border-b border-black p-1">
+                  {isEditing ? (
+                    <textarea
+                      className="w-full min-h-[88px] resize-y border-none bg-indigo-50/30 p-2 text-[0.7rem] leading-relaxed outline-none"
+                      value={goal.note || ''}
+                      onChange={(e) => handleMonthlyChange(idx, 'note', e.target.value)}
+                    />
+                  ) : (
+                    <div className="whitespace-pre-wrap break-words">{goal.note || ''}</div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

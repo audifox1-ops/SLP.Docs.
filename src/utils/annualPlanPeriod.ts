@@ -78,7 +78,8 @@ export const ensureAnnualPlanPeriod = (
       month,
       goal: existing?.goal || '',
       content: existing?.content || '',
-      area: existing?.area || student?.monthlyAreas?.[month] || student?.treatmentArea || ''
+      area: existing?.area || student?.monthlyAreas?.[month] || student?.treatmentArea || '',
+      note: existing?.note || ''
     };
   });
 
