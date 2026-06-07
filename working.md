@@ -426,3 +426,28 @@ Verification:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - In the UI, confirm the left sidebar appears on desktop after student/payment data is available, selecting a student opens the document workspace, and sidebar buttons switch annual/monthly/docs/student info/schedule/draft/template flows.
+
+## 2026-06-07 Student Management App Home
+
+Objective:
+- 앱의 초기 화면을 학생관리 앱처럼 구성한다.
+- 데이터 업로드를 초기 화면의 중심이 아니라 학생관리 앱의 일부 기능으로 귀속시킨다.
+- 교육청/기타 서류작성, 학생 수업관리, 수업료 결제일 자동설정, 메시지 발신 기능까지 갖춘 운영 앱 형태로 보이게 한다.
+
+Change:
+- `src/App.tsx`
+  - 기존 업로드 중심 히어로 화면을 `학생 운영 관리` 대시보드로 교체했다.
+  - 첫 화면에 등록 학생, 결제 기록, 저장 문서, 임시저장 현황 카드를 표시한다.
+  - 학생관리, 수업관리, 서류작성, 메시지 발신을 주요 업무 카드로 배치했다.
+  - 결제내역 업로드를 별도 업무 카드와 상단/사이드바 업로드 액션으로 이동해 학생관리 앱 내부 기능처럼 배치했다.
+  - 수업료 결제일 자동설정 카드에서 선택 학생의 월간일지가 있으면 `결제일 기준 맞추기`를 바로 실행하고, 없으면 월간일지 화면으로 안내한다.
+  - 메시지 발신 모달을 추가해 선택 학생/월 기준 수업 일정, 결제 기록, 문서 작성 상태 안내문을 생성하고, 복사 또는 문자앱 열기를 지원한다.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, confirm the first screen is a student operations dashboard, not an upload-only landing screen, and that upload/message/payment-date actions are reachable from that dashboard.

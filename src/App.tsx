@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Shield, Layers3, ArchiveRestore, Eye, EyeOff } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Shield, Layers3, ArchiveRestore, Eye, EyeOff, Users, CreditCard, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -291,6 +291,7 @@ export default function App() {
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [activeTemplateKind, setActiveTemplateKind] = useState<DocumentTemplateKind>('combined_journal');
   const [combinedTemplateSample, setCombinedTemplateSample] = useState<DocumentTemplateSample | null>(null);
@@ -2792,6 +2793,40 @@ export default function App() {
   const selectedStudentDraftCount = selectedStudent
     ? draftItems.filter(item => item.studentName === selectedStudent.name).length
     : 0;
+  const documentStatusList = Object.values(documentStatuses as DocumentStatuses);
+  const annualSavedCount = documentStatusList.filter(status => status.annual).length;
+  const selectedMonthSavedCount = documentStatusList.filter(status => status.monthly?.[`${selectedYear}_${selectedMonth}`]).length;
+  const selectedStudentPaymentCount = selectedStudent ? getMonthlyPaymentRecords(selectedStudent.name).length : 0;
+  const selectedScheduleLabel = selectedStudent
+    ? `${selectedStudent.schedule.day || '요일 미정'} · ${selectedStudent.schedule.time || '시간 미정'}`
+    : '학생 선택 필요';
+  const selectedMessageText = selectedStudent
+    ? [
+        `안녕하세요. ${getStudentDisplayName(selectedStudent.name)} 학생 ${selectedYear}년 ${selectedMonth}월 수업 안내드립니다.`,
+        `수업 일정: ${selectedScheduleLabel}`,
+        `결제 기록: ${selectedStudentPaymentCount}건`,
+        `작성 문서: 연간계획서 ${selectedAnnualSaved ? '저장됨' : '미저장'}, ${selectedMonth}월 일지 ${selectedMonthlySaved ? '저장됨' : '미저장'}`,
+        '확인 부탁드립니다.'
+      ].join('\n')
+    : [
+        `${selectedYear}년 ${selectedMonth}월 수업 및 결제 안내드립니다.`,
+        '학생을 선택하면 수업 일정, 결제 기록, 문서 작성 상태가 자동으로 포함됩니다.',
+        '확인 부탁드립니다.'
+      ].join('\n');
+
+  const copySelectedMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(selectedMessageText);
+      setUploadStatus({ type: 'success', message: '메시지 내용을 클립보드에 복사했습니다.' });
+    } catch {
+      setUploadStatus({ type: 'error', message: '클립보드 복사 권한이 없어 메시지를 직접 선택해 복사해 주세요.' });
+    }
+    setTimeout(() => setUploadStatus(null), 3000);
+  };
+
+  const openSmsDraft = () => {
+    window.location.href = `sms:?body=${encodeURIComponent(selectedMessageText)}`;
+  };
 
   const handleSidebarStudentSelect = (name: string) => {
     setIsDataLoaded(true);
@@ -3012,6 +3047,13 @@ export default function App() {
             프롬프트
           </button>
           <button
+            onClick={() => setShowMessageModal(true)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            메시지
+          </button>
+          <button
             onClick={handleSidebarFreshUpload}
             className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
           >
@@ -3054,7 +3096,7 @@ export default function App() {
           학생정보
         </button>
       </div>
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-5 gap-1.5">
         <button
           onClick={() => openStudentDocsFromSidebar('annual')}
           className={`rounded-lg px-2 py-2 text-[11px] font-black ${currentView === 'docs' && activeTab === 'annual' ? 'bg-primary text-white' : 'bg-primary-light text-primary'}`}
@@ -3081,6 +3123,12 @@ export default function App() {
           className="rounded-lg bg-slate-100 px-2 py-2 text-[11px] font-black text-slate-700"
         >
           임시
+        </button>
+        <button
+          onClick={() => setShowMessageModal(true)}
+          className="rounded-lg bg-slate-100 px-2 py-2 text-[11px] font-black text-slate-700"
+        >
+          메시지
         </button>
       </div>
     </div>
@@ -3170,17 +3218,11 @@ export default function App() {
           </button>
           {isDataLoaded && (
             <button
-              onClick={() => {
-                setIsDataLoaded(false);
-                setRawRecords([]);
-                setSelectedStudent(null);
-                setUploadStatus(null);
-                setSearchTerm('');
-              }}
+              onClick={handleSidebarFreshUpload}
               className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-primary-light"
             >
               <Upload className="w-4 h-4" />
-              새 파일 업로드
+              결제내역 업로드
             </button>
           )}
         </div>
@@ -3251,62 +3293,7 @@ export default function App() {
                 paymentRecords={allPaymentRecords}
               />
             ) : !isDataLoaded ? (
-          <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">
-            {/* Hero Section */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center mb-12 max-w-3xl"
-            >
-              <h1 className="text-4xl md:text-5xl font-black text-text-main mb-6 tracking-tight leading-tight">
-                복잡한 교육청 서류,<br />
-                <span className="text-primary">단 10초 만에</span> 완성하세요.
-              </h1>
-              <p className="text-lg md:text-xl text-text-muted leading-relaxed">
-                엑셀 데이터 업로드 한 번으로 연간계획서와 월별일지를<br className="hidden md:block" />
-                자동 생성하고 즉시 출력합니다.
-              </p>
-            </motion.div>
-
-            {/* Main Work Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.1 }}
-              className="w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl shadow-primary/5 border border-border-theme p-8 md:p-12 mb-16 relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary to-primary-dark"></div>
-
-              <div
-                className="flex flex-col items-center text-center cursor-pointer group"
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) processFile(file);
-                }}
-              >
-                <div className="bg-primary-light p-8 rounded-3xl mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
-                  <FileSpreadsheet className="w-16 h-16 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold text-text-main mb-4">데이터 파일 업로드</h2>
-                <p className="text-text-muted mb-8 leading-relaxed">
-                  학생들의 결제 내역이 담긴 CSV 또는 엑셀 파일을<br />
-                  드래그하여 놓거나 클릭하여 선택해 주세요.
-                </p>
-                <div className="flex flex-wrap justify-center gap-3 mb-8">
-                  {['학생이름', '거래일자', '지원영역', '소속 학교'].map(tag => (
-                    <span key={tag} className="bg-bg-theme px-4 py-1.5 rounded-full border border-border-theme text-xs font-bold text-text-muted">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <button className="bg-primary text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-2 hover:bg-primary-dark transition-all shadow-lg shadow-primary/20">
-                  파일 선택하기
-                  <ArrowRight className="w-5 h-5" />
-                </button>
+              <div className="flex-1 overflow-auto bg-bg-theme no-print">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -3314,44 +3301,239 @@ export default function App() {
                   accept=".csv, .xlsx, .xls"
                   className="hidden"
                 />
-              </div>
-            </motion.div>
+                <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col gap-4 border-b border-border-theme pb-5 md:flex-row md:items-end md:justify-between"
+                  >
+                    <div>
+                      <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-primary/15 bg-primary-light px-3 py-1 text-[11px] font-black uppercase tracking-wider text-primary">
+                        <Users className="h-3.5 w-3.5" />
+                        Student Operations
+                      </div>
+                      <h1 className="text-3xl font-black tracking-tight text-text-main md:text-4xl">
+                        학생 수업과 치료지원 서류를 한 화면에서 관리
+                      </h1>
+                      <p className="mt-3 max-w-3xl text-sm font-medium leading-relaxed text-text-muted md:text-base">
+                        학생 정보, 시간표, 수업료 결제일, 교육청 제출 서류, 메시지 업무를 학생별 워크스페이스로 묶었습니다.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setCurrentView('students')}
+                        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800"
+                      >
+                        <Users className="h-4 w-4" />
+                        학생관리 열기
+                      </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-primary bg-white px-4 py-2.5 text-sm font-black text-primary hover:bg-primary-light"
+                      >
+                        <Upload className="h-4 w-4" />
+                        결제내역 업로드
+                      </button>
+                    </div>
+                  </motion.div>
 
-            {/* Feature Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
-              {[
-                {
-                  icon: Zap,
-                  title: "간편한 엑셀 연동",
-                  desc: "드래그 앤 드롭으로 결제 내역을 즉시 로드합니다."
-                },
-                {
-                  icon: Sparkles,
-                  title: "AI 맞춤형 작성",
-                  desc: "학생별 치료 영역에 맞춘 목표를 자동 생성합니다."
-                },
-                {
-                  icon: ShieldCheck,
-                  title: "완벽한 출력 지원",
-                  desc: "A4 용지 규격에 최적화된 인쇄 및 PDF 저장을 지원합니다."
-                }
-              ].map((feature, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 + i * 0.1 }}
-                  className="bg-white p-8 rounded-2xl border border-border-theme shadow-sm hover:-translate-y-1 hover:shadow-xl transition-all duration-300 group"
-                >
-                  <div className="bg-primary-light w-12 h-12 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <feature.icon className="w-6 h-6 text-primary" />
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    {[
+                      { label: '등록 학생', value: `${studentInfos.length}명`, icon: Users, tone: 'text-primary bg-primary-light' },
+                      { label: '결제 기록', value: `${allPaymentRecords.length}건`, icon: CreditCard, tone: 'text-emerald-700 bg-emerald-50' },
+                      { label: '저장 문서', value: `${annualSavedCount + selectedMonthSavedCount}건`, icon: FileText, tone: 'text-amber-700 bg-amber-50' },
+                      { label: '임시저장', value: `${draftItems.length}건`, icon: ArchiveRestore, tone: 'text-slate-700 bg-slate-100' },
+                    ].map(item => (
+                      <div key={item.label} className="rounded-lg border border-border-theme bg-white p-4 shadow-sm">
+                        <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${item.tone}`}>
+                          <item.icon className="h-4 w-4" />
+                        </div>
+                        <div className="text-2xl font-black text-text-main">{item.value}</div>
+                        <div className="mt-1 text-xs font-bold text-text-muted">{item.label}</div>
+                      </div>
+                    ))}
                   </div>
-                  <h3 className="text-lg font-bold text-text-main mb-2">{feature.title}</h3>
-                  <p className="text-sm text-text-muted leading-relaxed">{feature.desc}</p>
-                </motion.div>
-              ))}
-            </div>
-          </div>
+
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border border-border-theme bg-white p-5 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-black text-text-main">학생관리</div>
+                            <div className="mt-1 text-xs font-semibold text-text-muted">기본정보, 치료 일정, 과거 자료, 첨부파일</div>
+                          </div>
+                          <Users className="h-5 w-5 text-primary" />
+                        </div>
+                        <button
+                          onClick={() => setCurrentView('students')}
+                          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-black text-white hover:bg-primary-dark"
+                        >
+                          학생정보 관리
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="rounded-lg border border-border-theme bg-white p-5 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-black text-text-main">수업관리</div>
+                            <div className="mt-1 text-xs font-semibold text-text-muted">요일별 시간표와 결제/출석 기록 비교</div>
+                          </div>
+                          <Calendar className="h-5 w-5 text-emerald-700" />
+                        </div>
+                        <button
+                          onClick={() => setCurrentView('schedule')}
+                          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700"
+                        >
+                          시간표 보기
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="rounded-lg border border-border-theme bg-white p-5 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-black text-text-main">서류작성</div>
+                            <div className="mt-1 text-xs font-semibold text-text-muted">연간계획서, 월간일지, 샘플 양식 출력</div>
+                          </div>
+                          <FileText className="h-5 w-5 text-amber-700" />
+                        </div>
+                        <div className="mt-5 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => openStudentDocsFromSidebar('annual')}
+                            className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-black text-white hover:bg-amber-600"
+                          >
+                            연간계획서
+                          </button>
+                          <button
+                            onClick={() => openStudentDocsFromSidebar('monthly')}
+                            className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-4 py-2 text-xs font-black text-amber-700 hover:bg-amber-50"
+                          >
+                            월간일지
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border-theme bg-white p-5 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-black text-text-main">메시지 발신</div>
+                            <div className="mt-1 text-xs font-semibold text-text-muted">수업 일정, 결제 기록, 문서 상태 안내문 생성</div>
+                          </div>
+                          <MessageSquare className="h-5 w-5 text-slate-700" />
+                        </div>
+                        <button
+                          onClick={() => setShowMessageModal(true)}
+                          className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-xs font-black text-white hover:bg-slate-900"
+                        >
+                          메시지 작성
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      className="rounded-lg border border-dashed border-primary/30 bg-white p-5 shadow-sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) processFile(file);
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-black text-text-main">결제내역 업로드</div>
+                          <div className="mt-1 text-xs font-semibold text-text-muted">CSV/XLSX 결제 내역을 학생별 수업료 기록으로 저장</div>
+                        </div>
+                        <FileSpreadsheet className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="mt-6 flex min-h-28 flex-col items-center justify-center rounded-lg bg-bg-theme px-4 py-6 text-center">
+                        <Upload className="mb-3 h-7 w-7 text-primary" />
+                        <div className="text-sm font-black text-text-main">파일 선택 또는 드래그</div>
+                        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                          {['학생이름', '거래일자', '결제일', '지원영역'].map(tag => (
+                            <span key={tag} className="rounded-md border border-border-theme bg-white px-2 py-1 text-[10px] font-bold text-text-muted">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <div className="rounded-lg border border-border-theme bg-white p-5">
+                      <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                        <CreditCard className="h-4 w-4 text-emerald-700" />
+                        수업료 결제일 자동설정
+                      </div>
+                      <p className="mt-2 text-xs font-semibold leading-relaxed text-text-muted">
+                        선택 월 결제 기록을 월간일지 회기 날짜에 반영합니다.
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (selectedStudent && monthlyData) {
+                            syncMonthlySessionsToPaymentRecords();
+                          } else {
+                            openStudentDocsFromSidebar('monthly');
+                            setUploadStatus({ type: 'error', message: '학생을 선택하고 월간일지를 연 뒤 결제일 기준 맞추기를 실행해 주세요.' });
+                            setTimeout(() => setUploadStatus(null), 3500);
+                          }
+                        }}
+                        className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-700"
+                      >
+                        결제일 기준 맞추기
+                      </button>
+                    </div>
+
+                    <div className="rounded-lg border border-border-theme bg-white p-5">
+                      <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                        <ShieldCheck className="h-4 w-4 text-primary" />
+                        교육청 및 기타 서류
+                      </div>
+                      <p className="mt-2 text-xs font-semibold leading-relaxed text-text-muted">
+                        샘플 양식, AI 점검, 워드/PDF 출력 흐름을 유지합니다.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setActiveTemplateKind('combined_journal');
+                          setShowTemplateModal(true);
+                        }}
+                        className="mt-4 rounded-lg border border-primary px-4 py-2 text-xs font-black text-primary hover:bg-primary-light"
+                      >
+                        양식 관리
+                      </button>
+                    </div>
+
+                    <div className="rounded-lg border border-border-theme bg-white p-5">
+                      <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                        <ArchiveRestore className="h-4 w-4 text-amber-700" />
+                        복구함
+                      </div>
+                      <p className="mt-2 text-xs font-semibold leading-relaxed text-text-muted">
+                        작성 중 문서와 이전 저장본을 학생별로 복구합니다.
+                      </p>
+                      <button
+                        onClick={() => {
+                          refreshDraftItems();
+                          setShowDraftModal(true);
+                        }}
+                        className="mt-4 rounded-lg bg-slate-100 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                      >
+                        임시저장 열기
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
         ) : (
           <div className="flex-1 flex overflow-hidden">
             {/* Content Area - Document Preview */}
@@ -3995,6 +4177,49 @@ export default function App() {
               )) : (
                 <div className="py-12 text-center text-text-muted font-semibold">복구할 임시저장 문서가 없습니다.</div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMessageModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowMessageModal(false)} />
+          <div className="relative bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-border-theme p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-xl font-black text-text-main flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-primary" />
+                  메시지 발신
+                </h3>
+                <p className="text-sm text-text-muted mt-1">
+                  {selectedStudent ? `${getStudentDisplayName(selectedStudent.name)} 학생 기준` : '학생 선택 전 기본 안내문'}
+                </p>
+              </div>
+              <button onClick={() => setShowMessageModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
+            </div>
+
+            <textarea
+              readOnly
+              value={selectedMessageText}
+              className="min-h-[220px] w-full resize-y rounded-xl border border-border-theme bg-bg-theme p-4 text-sm font-semibold leading-relaxed text-text-main outline-none"
+            />
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={copySelectedMessage}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200"
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                내용 복사
+              </button>
+              <button
+                onClick={openSmsDraft}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-black text-white hover:bg-primary-dark"
+              >
+                <MessageSquare className="w-4 h-4" />
+                문자앱 열기
+              </button>
             </div>
           </div>
         </div>
