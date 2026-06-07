@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "target_root": "/Users/audifox/Downloads/SLP.Docs.-main",
+  "skill_name": "autoresearch",
+  "installed_skill_root": "/Users/audifox/.codex/skills/autoresearch",
+  "project_skill_marker": "skill/autoresearch/SKILL.md",
+  "source_repo": {
+    "url": "https://github.com/Veritas-7/autoresearch-skill-system",
+    "path": "/Users/audifox/.codex/src/autoresearch-skill-system",
+    "commit": "ec2907754c905cf5f94644905e946ffe604d2630"
+  },
+  "python": "/Users/audifox/.codex/venvs/autoresearch-skill-system/bin/python",
+  "commands": {
+    "bind_target": "AUTORESEARCH_SESSION_TARGET_ROOT=/Users/audifox/Downloads/SLP.Docs.-main /Users/audifox/.codex/src/autoresearch-skill-system/scripts/autoresearch-bind-session-target --repo-root /Users/audifox/Downloads/SLP.Docs.-main",
+    "bounded_archive_run": "AUTORESEARCH_SESSION_TARGET_ROOT=/Users/audifox/Downloads/SLP.Docs.-main /Users/audifox/.codex/venvs/autoresearch-skill-system/bin/autoresearch-evolve --repo-root /Users/audifox/Downloads/SLP.Docs.-main --research-root /Users/audifox/Downloads/SLP.Docs.-main/.autoresearch/archives --reader-research-root /Users/audifox/Downloads/SLP.Docs.-main/12-research --forever --max-iterations 1 --no-install-sync --depth standard",
+    "skill_validation": "/Users/audifox/.codex/venvs/autoresearch-skill-system/bin/python /Users/audifox/.codex/src/autoresearch-skill-system/skill/autoresearch/scripts/validate_autoresearch_skill.py --skill-root /Users/audifox/.codex/src/autoresearch-skill-system/skill/autoresearch --json"
+  },
+  "research_root": ".autoresearch/archives",
+  "reader_research_root": "12-research",
+  "required_gates": [
+    "git diff --check",
+    "npm run lint",
+    "npm run build"
+  ],
+  "optional_gates": [
+    "npm audit --omit=dev --audit-level=moderate"
+  ],
+  "continuous_policy": {
+    "mode": "bounded_inspectable_cycles",
+    "user_authorized_commit_push": true,
+    "stop_file": "/Users/audifox/.local/state/autoresearch-skill-system/forever/autoresearch-forever-eeb7108fee89f048.stop",
+    "never_run_invisible_background": true,
+    "external_repositories_are_hypotheses_until_sandbox_ab_passes": true
+  }
+}

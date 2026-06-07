@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+.autoresearch/archives/
+.autoresearch/lock/
+.autoresearch/tmp/
+12-research/AutoResearch_External_Research_Ledger_*/

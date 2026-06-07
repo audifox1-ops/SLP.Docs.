@@ -784,3 +784,93 @@ Verification:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - Review `src/App.tsx` around `handleDeleteAllPaymentRecords`, the sidebar destructive action, and the AI writing guidance modal.
+
+<!-- autoresearch-cycle-note:2026-06-07_235358_004929_pid84867_1477490c -->
+- AutoResearch cycle `2026-06-07_235358_004929_pid84867_1477490c` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
+
+<!-- autoresearch-cycle-note:2026-06-07_235512_108909_pid86030_5250b9a1 -->
+- AutoResearch cycle `2026-06-07_235512_108909_pid86030_5250b9a1` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
+
+## 2026-06-07 AutoResearch Skill/Harness Install
+
+AutoResearch Skill (v8.863 - Working-state Skill Banner Value Parity)
+
+Objective:
+- Install `https://github.com/Veritas-7/autoresearch-skill-system`.
+- Adapt the harness to this SLP.Docs repo.
+- Keep future "infinite" improvement as bounded, inspectable cycles with stop-file control, A/B evidence, and commit/push only for adopted changes.
+
+Installation:
+- Installed Python 3.12 via Homebrew because `/usr/bin/python3` was 3.9.6 and the harness requires Python 3.11+.
+- Cloned source to `/Users/audifox/.codex/src/autoresearch-skill-system`.
+- Installed the Python package into `/Users/audifox/.codex/venvs/autoresearch-skill-system`.
+- Linked Codex skill `autoresearch` at `/Users/audifox/.codex/skills/autoresearch`.
+- Installed `gh` and `gitleaks` so GitHub metadata and secret-scan gates can pass.
+
+Verification:
+- Skill validation passed: 3657/3657 checks.
+- Session target binding passed for `/Users/audifox/Downloads/SLP.Docs.-main`.
+- `autoresearch-evolve --forever --max-iterations 1 --no-install-sync --depth standard` created archive `AutoResearch_Source_Repo_Evolution_2026-06-07_235512_108909_pid86030_5250b9a1`.
+- In that archive, GitHub source safety passed with 5 safe candidates and top-source smoke passed with 5/5 checks.
+- Final archive validation initially failed only because `working.md` did not include the installed skill banner/version and run worklog freshness failed closed; this section records that missing banner and setup evidence.
+
+Project setup changes:
+- Updated `AUTORESEARCH.md` with installed skill paths, runtime command, bounded continuous policy, and the user's commit/push authorization.
+- Added `.autoresearch/config.json` and `.autoresearch/README.md`.
+- Added `skill/autoresearch/SKILL.md` as a project-local `v8.863` version marker for the Veritas harness working-state check.
+- Ignored generated `.autoresearch/archives/`, `.autoresearch/lock/`, `.autoresearch/tmp/`, and `12-research/AutoResearch_External_Research_Ledger_*/`.
+- Added `12-research/autoresearch-harness-setup-2026-06-07.md` as the stable setup summary.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- Run `/Users/audifox/.codex/venvs/autoresearch-skill-system/bin/python /Users/audifox/.codex/src/autoresearch-skill-system/skill/autoresearch/scripts/validate_autoresearch_skill.py --skill-root /Users/audifox/.codex/src/autoresearch-skill-system/skill/autoresearch --json`.
+- Continue with the next bounded source-improvement cycle: monthly close checklist, using baseline/candidate/metric/rollback evidence before adoption.
+## 2026-06-07T14:57:41Z 2026-06-07-autoresearch-skill-install
+
+Status: completed
+Summary: Installed Veritas-7 autoresearch skill and adapted bounded harness config for SLP.Docs
+Decision: adopt
+Metrics:
+- github_safe_candidates: 5.0
+- skill_validation_checks_passed: 3657.0
+- top_source_smoke_passed: 5.0
+Changed:
+- AUTORESEARCH.md
+- .gitignore
+- .autoresearch/README.md
+- .autoresearch/config.json
+- 12-research/autoresearch-harness-setup-2026-06-07.md
+- working.md
+Verifiers:
+- validate_autoresearch_skill passed 3657/3657 checks
+- bounded standard autoresearch archive run produced GitHub source safety PASS and top-source smoke PASS
+Next: Run monthly close checklist source-improvement cycle with npm lint/build gates
+
+
+<!-- autoresearch-cycle-note:2026-06-07_235747_933743_pid86171_0629e5ec -->
+- AutoResearch cycle `2026-06-07_235747_933743_pid86171_0629e5ec` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
+
+<!-- autoresearch-cycle-note:2026-06-08_012307_871543_pid86521_4a419819 -->
+- AutoResearch cycle `2026-06-08_012307_871543_pid86521_4a419819` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
+## 2026-06-07T16:24:28Z 2026-06-08-autoresearch-marker-freshness
+
+Status: completed
+Summary: Added project-local autoresearch skill marker so Veritas working-state freshness passes
+Decision: adopt
+Metrics:
+- remaining_archive_validation_failures: 1.0
+- run_worklog_pass: 1.0
+- working_state_pass: 1.0
+Changed:
+- skill/autoresearch/SKILL.md
+- AUTORESEARCH.md
+- .autoresearch/config.json
+- 12-research/autoresearch-harness-setup-2026-06-07.md
+- working.md
+Verifiers:
+- working-state.json reported status PASS with skill_banner_version v8.863
+- completion-audit.md passed run_worklog after marker was added
+Next: Commit setup, rerun archive validation from committed HEAD, then continue monthly close checklist cycle
+
+<!-- autoresearch-cycle-note:2026-06-08_012528_528588_pid86722_6678ac55 -->
+- AutoResearch cycle `2026-06-08_012528_528588_pid86722_6678ac55` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
