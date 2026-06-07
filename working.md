@@ -904,3 +904,32 @@ Verifiers:
 - npm run lint passed
 - npm run build passed with existing firebase-vendor chunk warning
 Next: Next cycle can target firebase chunk splitting or safer payment import history
+## 2026-06-07T16:36:29Z 2026-06-08-firebase-chunk-split
+
+Status: running
+Summary: Started bundle cycle to split oversized firebase vendor chunk
+Metrics:
+- lock_acquired: 1.0
+Verifiers:
+- project_probe detected node stack with npm run lint and npm run build
+Next: Run baseline build, edit vite.config.ts manual chunks, then compare chunk warning count and largest emitted JS chunk
+## 2026-06-07T16:38:46Z 2026-06-08-firebase-chunk-split
+
+Status: completed
+Summary: Split Firebase vendor chunk by SDK surface to remove Vite chunk warning
+Decision: adopt
+Metrics:
+- baseline_largest_js_chunk_kb: 515.46
+- baseline_vite_chunk_warning_count: 1.0
+- candidate_largest_js_chunk_kb: 452.16
+- candidate_vite_chunk_warning_count: 0.0
+Changed:
+- vite.config.ts
+- 12-research/firebase-chunk-split-2026-06-08.md
+- working.md
+Verifiers:
+- npm run lint passed
+- npm run build passed with no Vite chunk-size warning
+- ab_gate largest_js_chunk_kb 515.46 -> 452.16 adopted
+- ab_gate vite_chunk_warning_count 1 -> 0 adopted with min_delta 0.5
+Next: Next cycle can evaluate safer payment import history or dependency security residual xlsx risk

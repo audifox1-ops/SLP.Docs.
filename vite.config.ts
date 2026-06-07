@@ -5,6 +5,19 @@ import {defineConfig} from 'vite';
 
 const vendorChunkGroups: [string, string[]][] = [
   ['react-vendor', ['react', 'react-dom', 'scheduler']],
+  ['firebase-firestore-vendor', ['firebase/firestore', '@firebase/firestore', '@firebase/webchannel-wrapper']],
+  ['firebase-storage-vendor', ['firebase/storage', '@firebase/storage']],
+  ['firebase-auth-vendor', ['firebase/auth', '@firebase/auth']],
+  ['firebase-core-vendor', [
+    'firebase/app',
+    'firebase/app-check',
+    '@firebase/app',
+    '@firebase/app-check',
+    '@firebase/component',
+    '@firebase/installations',
+    '@firebase/logger',
+    '@firebase/util',
+  ]],
   ['firebase-vendor', ['firebase', '@firebase']],
   ['docx-vendor', ['docx']],
   ['template-vendor', ['docxtemplater', 'pizzip', 'file-saver']],
