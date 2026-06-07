@@ -3,6 +3,7 @@ import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText, Upload,
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentInfo } from '../types';
 import { extractTextFromFile } from '../utils/extractText';
+import { WEEKDAY_OPTIONS, normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from '../utils/studentSchedule';
 
 interface Props {
   studentInfos: StudentInfo[];
@@ -28,21 +29,19 @@ const createEmptyStudentInfo = (): StudentInfo => ({
   specialNotes: ''
 });
 
-const dayOptions = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
-const timeOptions = [
-  '09:00~09:40',
-  '10:00~10:40',
-  '11:00~11:40',
-  '13:00~13:40',
-  '14:00~14:40',
-  '14:50~15:30',
-  '15:40~16:20',
-  '16:30~17:10',
-  '16:50~17:30',
-  '17:20~18:00',
-  '17:40~18:20',
-  '18:00~18:40'
-];
+const normalizeStudentFormData = (info: StudentInfo): StudentInfo => ({
+  ...info,
+  name: info.name.trim(),
+  birthDate: info.birthDate.trim(),
+  school: info.school.trim(),
+  disabilityType: info.disabilityType.trim(),
+  treatmentArea: info.treatmentArea.trim(),
+  therapistName: info.therapistName.trim(),
+  scheduleDay: normalizeScheduleDay(info.scheduleDay),
+  scheduleTime: normalizeScheduleTime(info.scheduleTime),
+  scheduleFrequency: normalizeScheduleFrequency(info.scheduleFrequency),
+  specialNotes: info.specialNotes || ''
+});
 
 export const StudentManagement: React.FC<Props> = ({
   studentInfos,
@@ -109,6 +108,8 @@ export const StudentManagement: React.FC<Props> = ({
   };
   
   const [formData, setFormData] = useState<StudentInfo>(createEmptyStudentInfo());
+  const selectedScheduleDay = normalizeScheduleDay(formData.scheduleDay);
+  const hasCustomScheduleDay = Boolean(selectedScheduleDay && !(WEEKDAY_OPTIONS as readonly string[]).includes(selectedScheduleDay));
 
   const filteredInfos = studentInfos.filter(info => 
     info.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -116,13 +117,15 @@ export const StudentManagement: React.FC<Props> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) return;
+    const nextFormData = normalizeStudentFormData(formData);
+    if (!nextFormData.name) return;
 
     if (editingName) {
-      onUpdate(editingName, formData);
+      onUpdate(editingName, nextFormData);
       setEditingName(null);
+      setIsAdding(false);
     } else {
-      onAdd(formData);
+      onAdd(nextFormData);
       setIsAdding(false);
     }
     
@@ -130,7 +133,7 @@ export const StudentManagement: React.FC<Props> = ({
   };
 
   const handleEdit = (info: StudentInfo) => {
-    setFormData(info);
+    setFormData(normalizeStudentFormData({ ...createEmptyStudentInfo(), ...info }));
     setEditingName(info.name);
     setIsAdding(true);
   };
@@ -444,12 +447,15 @@ export const StudentManagement: React.FC<Props> = ({
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">수업 요일</label>
                     <select
-                      value={formData.scheduleDay || ''}
+                      value={selectedScheduleDay || ''}
                       onChange={(e) => setFormData({ ...formData, scheduleDay: e.target.value })}
                       className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium cursor-pointer"
                     >
                       <option value="">요일 선택</option>
-                      {dayOptions.map(day => (
+                      {hasCustomScheduleDay && (
+                        <option value={selectedScheduleDay}>{selectedScheduleDay} (기존)</option>
+                      )}
+                      {WEEKDAY_OPTIONS.map(day => (
                         <option key={day} value={day}>{day}</option>
                       ))}
                     </select>
@@ -458,17 +464,12 @@ export const StudentManagement: React.FC<Props> = ({
                     <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">수업 시간</label>
                     <input
                       type="text"
-                      list="student-schedule-times"
                       value={formData.scheduleTime || ''}
                       onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
-                      placeholder="16:50~17:30"
+                      placeholder="14:50~15:30"
+                      autoComplete="off"
                       className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
                     />
-                    <datalist id="student-schedule-times">
-                      {timeOptions.map(time => (
-                        <option key={time} value={time} />
-                      ))}
-                    </datalist>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">주 횟수</label>

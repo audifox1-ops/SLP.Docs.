@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Shield, Layers3, ArchiveRestore, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -18,6 +18,7 @@ import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
+import { normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import {
   collection,
@@ -187,6 +188,61 @@ const isSafePaymentFieldName = (field: string) => (
   !BLOCKED_PAYMENT_FIELD_NAMES.has(field.trim().toLowerCase())
 );
 
+type EditableStudentInfoPayload = Pick<
+  StudentInfo,
+  | 'name'
+  | 'birthDate'
+  | 'school'
+  | 'disabilityType'
+  | 'treatmentArea'
+  | 'therapistName'
+  | 'scheduleDay'
+  | 'scheduleTime'
+  | 'scheduleFrequency'
+  | 'specialNotes'
+>;
+
+const buildEditableStudentInfoPayload = (info: StudentInfo): EditableStudentInfoPayload => ({
+  name: String(info.name || '').trim(),
+  birthDate: String(info.birthDate || '').trim(),
+  school: String(info.school || '').trim(),
+  disabilityType: String(info.disabilityType || '').trim(),
+  treatmentArea: String(info.treatmentArea || '').trim(),
+  therapistName: String(info.therapistName || '').trim(),
+  scheduleDay: normalizeScheduleDay(info.scheduleDay),
+  scheduleTime: normalizeScheduleTime(info.scheduleTime),
+  scheduleFrequency: normalizeScheduleFrequency(info.scheduleFrequency),
+  specialNotes: info.specialNotes || ''
+});
+
+const mergeEditableStudentInfo = (
+  current: StudentInfo | undefined,
+  payload: EditableStudentInfoPayload
+): StudentInfo => ({
+  ...(current || {}),
+  ...payload
+} as StudentInfo);
+
+const applyStudentInfoToSelectedStudent = (student: Student, info: StudentInfo): Student => ({
+  ...student,
+  id: info.name,
+  name: info.name,
+  birthDate: info.birthDate,
+  school: info.school,
+  disabilityType: info.disabilityType,
+  treatmentArea: info.treatmentArea,
+  therapistName: info.therapistName,
+  schedule: {
+    day: info.scheduleDay || '정보 없음',
+    time: info.scheduleTime || '정보 없음',
+    frequency: info.scheduleFrequency || '1'
+  },
+  referenceData: info.referenceData,
+  referenceFileName: info.referenceFileName,
+  specialNotes: info.specialNotes,
+  attachments: info.attachments
+});
+
 export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -211,6 +267,18 @@ export default function App() {
   // Student Info Management State
   const [studentInfos, setStudentInfos] = useState<StudentInfo[]>([]);
   const [allPaymentRecords, setAllPaymentRecords] = useState<PaymentRecord[]>([]);
+  const studentInfoByName = useMemo(() => new Map(studentInfos.map(info => [info.name, info])), [studentInfos]);
+  const paymentRecordsByStudentName = useMemo(() => {
+    const recordsByName = new Map<string, PaymentRecord[]>();
+    allPaymentRecords.forEach(record => {
+      const name = record.studentName;
+      if (!name) return;
+      const records = recordsByName.get(name) || [];
+      records.push(record);
+      recordsByName.set(name, records);
+    });
+    return recordsByName;
+  }, [allPaymentRecords]);
   const hasInitialLoaded = useRef(false);
   const skipNextFetchRef = useRef(false);
 
@@ -365,9 +433,9 @@ export default function App() {
   // Sync selected student data when studentInfos or allPaymentRecords change
   useEffect(() => {
     if (selectedStudent) {
-      const updatedInfo = studentInfos.find(s => s.name === selectedStudent.name);
+      const updatedInfo = studentInfoByName.get(selectedStudent.name);
       if (updatedInfo) {
-        const studentRecords = allPaymentRecords.filter(r => r.studentName === updatedInfo.name);
+        const studentRecords = paymentRecordsByStudentName.get(updatedInfo.name) || [];
         const paymentDates = studentRecords
           .map(r => r.transactionDate)
           .filter(Boolean)
@@ -404,28 +472,14 @@ export default function App() {
           }
 
           return {
-            ...prev,
-            birthDate: updatedInfo.birthDate,
-            school: updatedInfo.school,
-            disabilityType: updatedInfo.disabilityType,
-            treatmentArea: updatedInfo.treatmentArea,
-            therapistName: updatedInfo.therapistName,
-            schedule: {
-              day: updatedInfo.scheduleDay || '정보 없음',
-              time: updatedInfo.scheduleTime || '정보 없음',
-              frequency: updatedInfo.scheduleFrequency || '1'
-            },
+            ...applyStudentInfoToSelectedStudent(prev, updatedInfo),
             paymentDates: paymentDates,
-            monthlyAreas,
-            referenceData: updatedInfo.referenceData,
-            referenceFileName: updatedInfo.referenceFileName,
-            specialNotes: updatedInfo.specialNotes,
-            attachments: updatedInfo.attachments
+            monthlyAreas
           };
         });
       }
     }
-  }, [studentInfos, allPaymentRecords]);
+  }, [studentInfoByName, paymentRecordsByStudentName, selectedStudent?.name]);
 
   // 로컬 스토리지 임시 자동 저장 (isEditing 상태일 때 변경사항 저장)
   useEffect(() => {
@@ -480,35 +534,73 @@ export default function App() {
   }, [annualData, monthlyData, isEditing, selectedStudent]);
 
   const handleAddStudentInfo = async (info: StudentInfo) => {
-    if (studentInfos.some(s => s.name === info.name)) {
+    const payload = buildEditableStudentInfoPayload(info);
+    if (!payload.name) return;
+    if (studentInfoByName.has(payload.name)) {
       setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
       setTimeout(() => setUploadStatus(null), 3000);
       return;
     }
+    const nextInfo = mergeEditableStudentInfo(undefined, payload);
+    setStudentInfos(prev => prev.some(s => s.name === nextInfo.name) ? prev : [...prev, nextInfo]);
     try {
-      await setDoc(doc(db, 'students', info.name), info);
+      await setDoc(doc(db, 'students', nextInfo.name), nextInfo, { merge: true });
       setUploadStatus({ type: 'success', message: '학생 정보가 등록되었습니다.' });
     } catch (err) {
+      setStudentInfos(prev => prev.filter(s => s.name !== nextInfo.name));
       handleFirestoreError(err, OperationType.CREATE, 'students');
     }
     setTimeout(() => setUploadStatus(null), 3000);
   };
 
   const handleUpdateStudentInfo = async (oldName: string, info: StudentInfo) => {
+    const payload = buildEditableStudentInfoPayload(info);
+    if (!payload.name) return;
+    if (oldName !== payload.name && studentInfoByName.has(payload.name)) {
+      setUploadStatus({ type: 'error', message: '이미 등록된 학생 이름입니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+      return;
+    }
+
+    const previousInfo = studentInfoByName.get(oldName);
+    const nextInfo = mergeEditableStudentInfo(previousInfo || info, payload);
+    setStudentInfos(prev => {
+      if (oldName !== nextInfo.name) {
+        return [...prev.filter(s => s.name !== oldName && s.name !== nextInfo.name), nextInfo];
+      }
+      return prev.map(s => s.name === oldName ? mergeEditableStudentInfo(s, payload) : s);
+    });
+
+    if (selectedStudent && selectedStudent.name === oldName) {
+      setSelectedStudent(prev => prev ? applyStudentInfoToSelectedStudent(prev, nextInfo) : null);
+    }
+
     try {
-      if (oldName !== info.name) {
-        await deleteDoc(doc(db, 'students', oldName));
-        await setDoc(doc(db, 'students', info.name), info);
+      if (oldName !== nextInfo.name) {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'students', nextInfo.name), nextInfo);
+        batch.delete(doc(db, 'students', oldName));
+        await batch.commit();
 
         // If the selected student's name was changed, update the selected student ID
         if (selectedStudent && selectedStudent.name === oldName) {
-          setSelectedStudent(prev => prev ? { ...prev, id: info.name, name: info.name } : null);
+          setSelectedStudent(prev => prev ? { ...prev, id: nextInfo.name, name: nextInfo.name } : null);
         }
       } else {
-        await setDoc(doc(db, 'students', info.name), info);
+        await setDoc(doc(db, 'students', nextInfo.name), payload, { merge: true });
       }
       setUploadStatus({ type: 'success', message: '학생 정보가 수정되었습니다.' });
     } catch (err) {
+      setStudentInfos(prev => {
+        if (oldName !== nextInfo.name) {
+          const restored = prev.filter(s => s.name !== oldName && s.name !== nextInfo.name);
+          return previousInfo ? [...restored, previousInfo] : restored;
+        }
+        return previousInfo ? prev.map(s => s.name === oldName ? previousInfo : s) : prev;
+      });
+      if (selectedStudent && selectedStudent.name === oldName) {
+        setSelectedStudent(prev => previousInfo && prev ? applyStudentInfoToSelectedStudent(prev, previousInfo) : prev);
+      }
       handleFirestoreError(err, OperationType.UPDATE, 'students');
     }
     setTimeout(() => setUploadStatus(null), 3000);
@@ -938,10 +1030,10 @@ export default function App() {
     setMonthlyData(null);
 
     // Get records from Firestore state
-    const studentRecords = allPaymentRecords.filter(r => r.studentName === name);
+    const studentRecords = paymentRecordsByStudentName.get(name) || [];
 
     // Look up student info in management system
-    const info = studentInfos.find(s => s.name === name);
+    const info = studentInfoByName.get(name);
 
     if (!info) {
       setUploadStatus({

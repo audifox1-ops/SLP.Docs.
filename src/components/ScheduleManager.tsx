@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, CheckCircle2, CircleDashed } from 'lucide-react';
 import { StudentInfo, PaymentRecord } from '../types';
+import { getScheduleDayNumber } from '../utils/studentSchedule';
 
 interface Props {
   studentInfos: StudentInfo[];
@@ -63,19 +64,6 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     return '';
   };
 
-  // Match day string to number (0-6)
-  const getDayNumber = (dayStr?: string) => {
-    if (!dayStr) return -1;
-    if (dayStr.includes('일')) return 0;
-    if (dayStr.includes('월')) return 1;
-    if (dayStr.includes('화')) return 2;
-    if (dayStr.includes('수')) return 3;
-    if (dayStr.includes('목')) return 4;
-    if (dayStr.includes('금')) return 5;
-    if (dayStr.includes('토')) return 6;
-    return -1;
-  };
-
   const getWeekDays = (date: Date) => {
     const day = date.getDay();
     const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
@@ -105,7 +93,7 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const dayOfWeek = d.getDay();
       
-      const expected = studentInfos.filter(s => getDayNumber(s.scheduleDay) === dayOfWeek);
+      const expected = studentInfos.filter(s => getScheduleDayNumber(s.scheduleDay) === dayOfWeek);
       map.set(dateStr, { expected, actual: [] });
     }
 

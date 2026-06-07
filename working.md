@@ -360,3 +360,45 @@ Verification:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - In the UI, confirm the monthly journal title reads `교육청 치료지원 대상 개별 치료 일지(03월)` style, date cells read `MM/DD`, and labels read `(MM)월 치료목표/치료결과`.
+
+## 2026-06-07 Student Info Save And Schedule Input
+
+Objective:
+- 학생정보관리에서 학생 정보를 수정 후 저장할 때 오래 로딩되는 현상을 줄인다.
+- 수업 요일 선택을 다시 점검한다.
+- 수업 시간은 사용자가 직접 입력할 수 있는 형태로 제공한다.
+- 샘플 양식과 다시 비교해 연간계획서와 월간일지의 기본 작성 흐름이 맞는지 확인한다.
+
+Actual samples checked:
+- `/Users/audifox/Downloads/차윤우 월간일지25.6.hwp`
+  - Monthly schedule rows: `치료 기간 / 치료사 / 요일 / 시간 / 횟수`.
+  - Sample monthly values include `요일: 목요일`, `시간: 14:50~15:30`, `횟수: 주 1 회`.
+- `/Users/audifox/Downloads/치료기관 연간 계획서 및 일지 양식-차윤우25.6~26.6.hwp`
+  - Annual info table: `학생명 / 생년월일 / 소속 학교 (유치원) / 장애 유형 / 치료 영역 / 치료 일정`.
+  - Annual schedule rows include `치료 기간 / 치료사 / 복지부 바우처 이용 영역 / 요일 / 시간 / 횟수`.
+  - Annual plan table: `월 / 단기 목표(월 목표) / 치료 내용 / 비고`.
+
+Change:
+- `src/components/StudentManagement.tsx`
+  - Edit-save now closes the modal immediately after submit.
+  - Student form values are trimmed/normalized before save.
+  - Class day selection stores standard full weekday labels such as `목요일`; old non-standard values are preserved in the select instead of disappearing.
+  - Class time is now a plain text input without fixed datalist suggestions.
+- `src/utils/studentSchedule.ts`
+  - Added shared schedule day/time/frequency normalization helpers and weekday-to-calendar-day mapping.
+- `src/App.tsx`
+  - Same-name student edits now write only editable profile/schedule fields with Firestore merge instead of rewriting large `referenceData`/attachment fields.
+  - Student add/update is reflected optimistically in local state.
+  - Student rename uses one Firestore batch for new document creation and old document deletion.
+  - Selected-student sync now uses cached student/payment maps instead of filtering all payment records on every student-info update.
+- `src/components/ScheduleManager.tsx`
+  - Calendar expected schedule matching now uses the shared weekday normalization helper.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Run `git diff --check && npm run lint && npm run build`.
+- In the UI, edit a student, change `수업 요일` and directly type a `수업 시간`; confirm save closes immediately and annual/monthly schedule rows show the changed values.
