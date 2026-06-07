@@ -593,3 +593,68 @@ Lock:
 Next if interrupted:
 - Run `git status --short --branch`.
 - Start or refresh the app and confirm the browser console no longer shows the `identitytoolkit.googleapis.com/v1/accounts:signUp` 400 request or `Anonymous auth failed` log.
+
+## 2026-06-07 Backend Hardening Pass
+
+Objective:
+- Strengthen the backend according to the previously recommended priority order.
+- Apply the first security layer in code rather than only documenting recommendations.
+
+Change:
+- `src/services/authService.ts`
+  - Added Firebase operator-session tracking with Google/email sign-in, role resolution, bootstrap admin email support, and sign-out helpers.
+- `src/components/OperatorAuthGate.tsx`
+  - Added a full-screen operator login gate for signed-out, checking, unauthorized, and error states.
+- `src/App.tsx`
+  - Firestore listeners now attach only after an authorized `admin` or `staff` operator is ready.
+  - Signed-out or unauthorized states clear synced student/payment/document/template data.
+  - AI status preflight calls now include the current Firebase ID token.
+  - Header shows the active operator role and exposes sign-out.
+- `src/services/aiService.ts`
+  - AI generation requests now include the current Firebase ID token.
+- `serverless/firebaseAdmin.js`
+  - Added server-side Firebase ID token verification with Firebase public certificates, project/issuer/audience/expiry checks, bootstrap admin support, and `users/{uid}` role lookup through Firestore REST.
+- `api/ai/generate.js`, `api/ai/status.js`, `server.ts`
+  - Protected AI status and generation routes with server-side staff authorization.
+  - Local server now respects `PORT`.
+- `api/operations/delete-student.js`, `serverless/operationsCommon.js`
+  - Added a protected admin-only student deletion endpoint.
+  - `src/App.tsx` now calls `/api/operations/delete-student` instead of deleting student documents directly from the client.
+- `serverless/aiCommon.js`
+  - Added AI prompt size limits, model allowlist, and per-operator in-memory rate limiting.
+- `firestore.rules`
+  - Replaced simple `request.auth != null` staff access with role-based `admin`/`staff` checks.
+  - Added `users/{uid}` profile rules.
+  - Added validators for annual plans, monthly journals, document history, templates, template chunks, message logs, and schedule operations.
+  - Restricted destructive deletes and template writes to `admin` where practical.
+- `storage.rules`, `firebase.json`, `package.json`
+  - Added Firebase Storage rules and a deploy script.
+  - Limited storage paths, methods, file sizes, and content types for student attachments, payment files, and template files.
+- `src/firebase.ts`
+  - Added optional App Check initialization through `VITE_FIREBASE_APPCHECK_RECAPTCHA_SITE_KEY`.
+  - Removed unused Anonymous Auth helper code.
+- `.env.example`, `README.md`
+  - Documented operator roles, protected AI API environment variables, Storage rules deployment, and optional App Check setup.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `node -e "await import('./serverless/firebaseAdmin.js'); await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`: passed.
+- `PORT=3101 npm run dev`: server started on `http://localhost:3101`; Vite reported the existing HMR WebSocket port was already in use, but the HTTP server started.
+- `curl -i -sS http://localhost:3101/api/health`: returned `200`.
+- `curl -i -sS http://localhost:3101/api/ai/status`: returned `401 MISSING_AUTH_TOKEN`.
+- `curl -i -sS -X POST http://localhost:3101/api/operations/delete-student -H 'Content-Type: application/json' --data '{"studentName":"테스트"}'`: returned `401 MISSING_AUTH_TOKEN`.
+- `npm audit --omit=dev --audit-level=moderate`: still fails only on the known `xlsx` high severity advisories with no upstream fix.
+- `npx --yes firebase-tools deploy --only firestore:rules,storage --project slp-docs --dry-run --non-interactive`: blocked because Firebase CLI is not logged in.
+
+Remaining backend work:
+- Move remaining high-impact data writes such as payment import confirmation, document save/history, and template upload/delete behind server-owned endpoints if a privileged server credential or Cloud Functions deployment target is approved.
+- Replace or isolate `xlsx` parsing to remove the remaining dependency advisory.
+- Deploy the updated Firestore and Storage rules after Firebase CLI login and enable App Check enforcement after the reCAPTCHA provider is configured.
+
+Next if interrupted:
+- Run `git status --short --branch`.
+- Re-run `git diff --check && npm run lint && npm run build`.
+- Log in with a Firebase Google or email/password operator account.
+- Confirm a verified bootstrap admin email or `users/{uid}.role` of `admin`/`staff` can open the app and an unapproved account sees the unauthorized gate.

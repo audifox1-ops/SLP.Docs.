@@ -2,6 +2,16 @@ import { GoogleGenAI } from '@google/genai';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 const QUOTA_RETRY_AFTER_SECONDS = 60;
+const MAX_PROMPT_CHARS = Number(process.env.AI_MAX_PROMPT_CHARS || 30000);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.AI_RATE_LIMIT_WINDOW_MS || 60_000);
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.AI_RATE_LIMIT_MAX_REQUESTS || 12);
+const ALLOWED_MODELS = new Set(
+  (process.env.GEMINI_ALLOWED_MODELS || DEFAULT_MODEL)
+    .split(',')
+    .map(model => model.trim())
+    .filter(Boolean)
+);
+const rateLimitBuckets = new Map();
 
 export async function checkGeminiStatus() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -32,8 +42,9 @@ export async function checkGeminiStatus() {
   }
 }
 
-export async function generateGeminiContent(prompt, model = DEFAULT_MODEL) {
+export async function generateGeminiContent(prompt, model = DEFAULT_MODEL, operator = null) {
   const apiKey = process.env.GEMINI_API_KEY;
+  const requestedModel = typeof model === 'string' && model.trim() ? model.trim() : DEFAULT_MODEL;
 
   if (!apiKey) {
     return {
@@ -62,10 +73,52 @@ export async function generateGeminiContent(prompt, model = DEFAULT_MODEL) {
     };
   }
 
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    return {
+      status: 400,
+      payload: {
+        error: {
+          code: 'PROMPT_TOO_LARGE',
+          message: `Prompt exceeds ${MAX_PROMPT_CHARS} characters.`,
+          userMessage: 'AI 생성 요청 내용이 너무 깁니다. 자료를 줄인 뒤 다시 시도해 주세요.'
+        }
+      }
+    };
+  }
+
+  if (!ALLOWED_MODELS.has(requestedModel)) {
+    return {
+      status: 400,
+      payload: {
+        error: {
+          code: 'MODEL_NOT_ALLOWED',
+          message: `Model ${requestedModel} is not allowed.`,
+          userMessage: '허용되지 않은 AI 모델 요청입니다.'
+        }
+      }
+    };
+  }
+
+  const rateLimit = checkRateLimit(operator);
+  if (!rateLimit.ok) {
+    return {
+      status: 429,
+      payload: {
+        error: {
+          status: 429,
+          code: 'AI_RATE_LIMITED',
+          message: 'AI request rate limit exceeded.',
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          userMessage: 'AI 요청이 짧은 시간에 많습니다. 잠시 후 다시 시도해 주세요.'
+        }
+      }
+    };
+  }
+
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model,
+      model: requestedModel,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         responseMimeType: 'application/json'
@@ -77,6 +130,26 @@ export async function generateGeminiContent(prompt, model = DEFAULT_MODEL) {
     const details = normalizeGeminiError(error);
     return { status: details.status || 500, payload: { error: details } };
   }
+}
+
+function checkRateLimit(operator) {
+  const key = operator?.uid || operator?.email || 'unknown';
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { ok: true };
+  }
+
+  if (bucket.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))
+    };
+  }
+
+  bucket.count += 1;
+  return { ok: true };
 }
 
 function normalizeGeminiError(error) {

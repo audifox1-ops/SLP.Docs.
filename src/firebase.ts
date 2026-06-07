@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, addDoc, serverTimestamp, onSnapshot, deleteDoc, updateDoc, getDocFromServer, writeBatch } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase
@@ -12,16 +13,14 @@ export const db = (firebaseConfig as any).firestoreDatabaseId
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 
-export function shouldUseAnonymousAuth() {
-  return (import.meta as any).env?.VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH === 'true';
-}
+const appCheckSiteKey = (import.meta as any).env?.VITE_FIREBASE_APPCHECK_RECAPTCHA_SITE_KEY;
 
-export async function ensureAnonymousAuth() {
-  if (!shouldUseAnonymousAuth()) return null;
-  if (auth.currentUser) return auth.currentUser;
-  const credential = await signInAnonymously(auth);
-  return credential.user;
-}
+export const appCheck = appCheckSiteKey
+  ? initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    })
+  : null;
 
 // Error handling helper
 export enum OperationType {

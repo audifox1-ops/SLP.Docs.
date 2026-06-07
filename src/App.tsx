@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Layers3, ArchiveRestore, Eye, EyeOff, Users, CreditCard, MessageSquare } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Layers3, ArchiveRestore, Eye, EyeOff, Users, CreditCard, MessageSquare, LogOut, UserCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -11,6 +11,7 @@ import { MonthlyJournal } from './components/MonthlyJournal';
 import { ExportOptionsModal, ExportOptions } from './components/ExportOptionsModal';
 import { PreviewModal } from './components/PreviewModal';
 import { MonthlyTemplateModal } from './components/MonthlyTemplateModal';
+import { OperatorAuthGate } from './components/OperatorAuthGate';
 import { ScheduleManager } from './components/ScheduleManager';
 import { createAnnualDocxBlob, createMonthlyDocxBlob, exportMultiMonthDocs } from './utils/docxExport';
 import { canApplyTemplateAutomatically, createAnnualPlanTemplateBlob, createCombinedJournalTemplateBlob, createMonthlyJournalTemplateBlob } from './utils/monthlyTemplateExport';
@@ -19,7 +20,15 @@ import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storag
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
 import { getScheduleDayNumber, normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
-import { db, OperationType, handleFirestoreError, ensureAnonymousAuth, shouldUseAnonymousAuth } from './firebase';
+import { db, OperationType, handleFirestoreError } from './firebase';
+import {
+  INITIAL_OPERATOR_SESSION,
+  getCurrentOperatorIdToken,
+  signInOperatorWithEmail,
+  signInOperatorWithGoogle,
+  signOutOperator,
+  subscribeOperatorSession,
+} from './services/authService';
 import {
   collection,
   addDoc,
@@ -387,15 +396,28 @@ export default function App() {
   const [batchResults, setBatchResults] = useState<BatchMonthResult[]>([]);
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [preflightIssues, setPreflightIssues] = useState<string[]>([]);
+  const [operatorSession, setOperatorSession] = useState(INITIAL_OPERATOR_SESSION);
+  const operatorReady = operatorSession.status === 'ready';
 
   useEffect(() => {
-    if (!shouldUseAnonymousAuth()) return;
-    ensureAnonymousAuth()
-      .catch(() => {});
+    return subscribeOperatorSession(setOperatorSession);
   }, []);
+
+  useEffect(() => {
+    if (operatorReady || operatorSession.status === 'checking') return;
+    setStudentInfos([]);
+    setAllPaymentRecords([]);
+    setDocumentStatuses({});
+    setCombinedTemplateSample(null);
+    setAnnualTemplateSample(null);
+    setMonthlyTemplateSample(null);
+    hasInitialLoaded.current = false;
+  }, [operatorReady, operatorSession.status]);
 
   // Firestore Listeners
   useEffect(() => {
+    if (!operatorReady) return;
+
     const qStudents = collection(db, 'students');
     const unsubStudents = onSnapshot(qStudents, {
       next: (snapshot) => {
@@ -510,7 +532,7 @@ export default function App() {
       unsubAnnualTemplate();
       unsubMonthlyTemplate();
     };
-  }, []);
+  }, [operatorReady]);
 
   // Sync selected student data when studentInfos or allPaymentRecords change
   useEffect(() => {
@@ -592,6 +614,8 @@ export default function App() {
   }, [messageLogs]);
 
   useEffect(() => {
+    if (!operatorReady) return;
+
     const unsubMessageLogs = onSnapshot(collection(db, 'message_logs'), {
       next: (snapshot) => {
         const logs = snapshot.docs
@@ -607,7 +631,7 @@ export default function App() {
     });
 
     return () => unsubMessageLogs();
-  }, []);
+  }, [operatorReady]);
 
   const refreshDraftItems = () => {
     const drafts: DraftItem[] = [];
@@ -717,10 +741,26 @@ export default function App() {
   const handleDeleteStudentInfo = async (name: string) => {
     if (window.confirm(`${name} 학생의 정보를 삭제하시겠습니까?`)) {
       try {
-        await deleteDoc(doc(db, 'students', name));
+        const token = await getCurrentOperatorIdToken();
+        const response = await fetch('/api/operations/delete-student', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ studentName: name }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error?.userMessage || '학생 정보 삭제 중 오류가 발생했습니다.');
+        }
         setUploadStatus({ type: 'success', message: '학생 정보가 삭제되었습니다.' });
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, 'students');
+        console.error('Student delete failed:', err);
+        setUploadStatus({
+          type: 'error',
+          message: err instanceof Error ? err.message : '학생 정보 삭제 중 오류가 발생했습니다.',
+        });
       }
       setTimeout(() => setUploadStatus(null), 3000);
     }
@@ -1807,7 +1847,12 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/ai/status');
+      const token = await getCurrentOperatorIdToken();
+      const response = await fetch('/api/ai/status', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       const status = await response.json();
       if (!status.ok) {
         issues.push(status.error?.userMessage || 'AI 상태 점검에 실패했습니다. 임시 초안 생성으로 대체될 수 있습니다.');
@@ -3661,6 +3706,17 @@ export default function App() {
     </div>
   ) : null;
 
+  if (!operatorReady) {
+    return (
+      <OperatorAuthGate
+        session={operatorSession}
+        onGoogleSignIn={signInOperatorWithGoogle}
+        onEmailSignIn={signInOperatorWithEmail}
+        onSignOut={signOutOperator}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
       {/* Header - Hidden on Print */}
@@ -3700,6 +3756,19 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-4">
+          <div className="hidden items-center gap-2 rounded-lg border border-border-theme bg-white px-3 py-2 text-xs font-bold text-text-muted lg:flex">
+            <UserCircle className="h-4 w-4 text-primary" />
+            <span className="max-w-[160px] truncate">{operatorSession.displayName || operatorSession.email}</span>
+            <span className="rounded-md bg-primary-light px-1.5 py-0.5 text-[10px] font-black uppercase text-primary">{operatorSession.role}</span>
+            <button
+              type="button"
+              onClick={() => void signOutOperator()}
+              className="ml-1 rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-red-600"
+              title="로그아웃"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <button
             onClick={() => {
               refreshDraftItems();

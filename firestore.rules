@@ -1,68 +1,64 @@
 // ===============================================================
-// Assumed Data Model
+// Production Data Model
 // IMPORTANT:
-// - These production rules require Firebase Authentication.
-// - The client initializes Anonymous Auth so a single-operator deployment can
-//   keep the existing no-login workflow while blocking unauthenticated public
-//   reads/writes.
-// - Enable Authentication > Anonymous provider before deploying these rules.
-// ===============================================================
-//
-// Collection: students
-// Document ID: {studentId} (usually student name or unique ID)
-// Fields:
-//   - name: string (required)
-//   - birthDate: string (required)
-//   - school: string (required)
-//   - disabilityType: string
-//   - treatmentArea: string (required)
-//   - therapistName: string
-//   - schedule: map { day: string, time: string, frequency: string }
-//   - startDate: string
-//   - paymentDates: array of strings
-//
-// Collection: payment_records
-// Document ID: auto-generated
-// Fields:
-//   - studentName: string (required)
-//   - transactionDate: string (required)
-//   - amount: number | string (required)
-//   - treatmentArea: string (required)
-//   - createdAt: timestamp (required)
-//
-// Collection: document_templates
-// Document ID: monthly_journal
-// Fields:
-//   - fileName: string
-//   - fileUrl: string
-//   - fileType: string
-//   - fileSize: number
-//   - uploadedAtMs: number
-//   - applyMode: string ("hwp-template" for primary HWP samples, "hwpx-template" or "docx-template" for automatic replacement)
-//
+// - These rules require Firebase Authentication.
+// - Staff access is role-based. A signed-in user must have one of:
+//   1) custom claim: { admin: true } or { role: "admin" | "staff" }
+//   2) users/{uid}.role: "admin" | "staff"
+//   3) verified bootstrap admin email: audifox1@gmail.com
+// - Anonymous Auth is not treated as staff by itself.
 // ===============================================================
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     // ===============================================================
-    // Helper Functions
+    // Auth Helpers
     // ===============================================================
-    
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
+    function isBootstrapAdmin() {
+      return isAuthenticated() &&
+             request.auth.token.email == "audifox1@gmail.com" &&
+             request.auth.token.email_verified == true;
+    }
+
+    function hasClaimRole(role) {
+      return isAuthenticated() && request.auth.token.role == role;
+    }
+
+    function hasUserProfileRole(role) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled != true;
+    }
+
     function isAdmin() {
-      return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "audifox1@gmail.com" && request.auth.token.email_verified == true));
+      return isAuthenticated() &&
+             (request.auth.token.admin == true ||
+              hasClaimRole('admin') ||
+              hasUserProfileRole('admin') ||
+              isBootstrapAdmin());
     }
 
     function isStaff() {
-      return isAuthenticated();
+      return isAuthenticated() &&
+             (request.auth.token.admin == true ||
+              hasClaimRole('admin') ||
+              hasClaimRole('staff') ||
+              hasUserProfileRole('admin') ||
+              hasUserProfileRole('staff') ||
+              isBootstrapAdmin());
     }
+
+    // ===============================================================
+    // Generic Validators
+    // ===============================================================
 
     function optionalString(data, field, maxSize) {
       let value = data.get(field, null);
@@ -76,15 +72,42 @@ service cloud.firestore {
              value is bool;
     }
 
+    function optionalNumber(data, field) {
+      let value = data.get(field, null);
+      return value == null ||
+             value is number;
+    }
+
     function optionalTimestamp(data, field) {
       let value = data.get(field, null);
       return value == null ||
              value is timestamp;
     }
 
+    function optionalList(data, field) {
+      let value = data.get(field, null);
+      return value == null ||
+             value is list;
+    }
+
+    function optionalMap(data, field) {
+      let value = data.get(field, null);
+      return value == null ||
+             value is map;
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
+
+    function isValidUserProfile(data) {
+      return data.role in ['admin', 'staff', 'viewer'] &&
+             optionalString(data, 'displayName', 100) &&
+             optionalString(data, 'email', 200) &&
+             optionalBool(data, 'disabled') &&
+             optionalTimestamp(data, 'createdAt') &&
+             optionalTimestamp(data, 'updatedAt');
+    }
 
     function isValidStudent(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
@@ -99,17 +122,55 @@ service cloud.firestore {
              optionalBool(data, 'messageConsent') &&
              optionalString(data, 'scheduleDay', 20) &&
              optionalString(data, 'scheduleTime', 50) &&
-             optionalString(data, 'scheduleFrequency', 20);
+             optionalString(data, 'scheduleFrequency', 20) &&
+             optionalList(data, 'scheduleTimeHistory') &&
+             optionalString(data, 'referenceData', 200000) &&
+             optionalString(data, 'referenceFileName', 255) &&
+             optionalString(data, 'specialNotes', 20000) &&
+             optionalList(data, 'attachments');
     }
 
     function isValidPaymentRecord(data) {
       return data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
              data.transactionDate is string && data.transactionDate.size() > 0 && data.transactionDate.size() < 50 &&
              data.treatmentArea is string && data.treatmentArea.size() < 100 &&
-             (data.amount is number || data.amount is string) &&
+             (data.amount is number || (data.amount is string && data.amount.size() < 50)) &&
              optionalString(data, 'transactionTime', 20) &&
              optionalTimestamp(data, 'createdAt') &&
              optionalTimestamp(data, 'updatedAt');
+    }
+
+    function isValidAnnualPlan(data) {
+      return data.currentLevel is list &&
+             data.longTermGoals is list &&
+             data.monthlyGoals is list &&
+             optionalNumber(data, 'startYear') &&
+             optionalNumber(data, 'startMonth') &&
+             optionalNumber(data, 'endYear') &&
+             optionalNumber(data, 'endMonth') &&
+             optionalString(data, 'therapyPeriod', 100) &&
+             optionalMap(data, 'studentOverrides');
+    }
+
+    function isValidMonthlyJournal(data) {
+      return data.currentLevel is string && data.currentLevel.size() <= 10000 &&
+             data.monthlyGoal is string && data.monthlyGoal.size() <= 10000 &&
+             data.sessions is list &&
+             data.result is string && data.result.size() <= 20000 &&
+             optionalString(data, 'therapyPeriod', 100) &&
+             optionalMap(data, 'studentOverrides');
+    }
+
+    function isValidDocumentHistory(data) {
+      return data.docType in ['annual', 'monthly'] &&
+             data.docKey is string && data.docKey.size() > 0 && data.docKey.size() < 200 &&
+             data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.data is map &&
+             data.createdAtMs is number &&
+             optionalNumber(data, 'year') &&
+             optionalNumber(data, 'month') &&
+             optionalString(data, 'label', 100) &&
+             optionalTimestamp(data, 'createdAt');
     }
 
     function isValidMessageLog(data) {
@@ -119,7 +180,7 @@ service cloud.firestore {
              data.templateKey is string && data.templateKey.size() < 30 &&
              data.targetPhone is string && data.targetPhone.size() < 40 &&
              data.message is string && data.message.size() < 5000 &&
-             data.action is string && data.action.size() < 30 &&
+             data.action in ['copied', 'sms-opened'] &&
              data.createdAtMs is number &&
              optionalTimestamp(data, 'createdAt');
     }
@@ -128,70 +189,99 @@ service cloud.firestore {
       return data.date is string && data.date.size() > 0 && data.date.size() < 20 &&
              data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
              data.time is string && data.time.size() < 50 &&
-             data.status is string && data.status.size() < 30 &&
+             data.status in ['예정', '출석', '결석', '취소', '보강'] &&
              data.note is string && data.note.size() < 2000 &&
              data.updatedAtMs is number &&
              optionalTimestamp(data, 'updatedAt');
+    }
+
+    function isValidDocumentTemplate(data) {
+      return optionalString(data, 'templateKind', 40) &&
+             data.fileName is string && data.fileName.size() > 0 && data.fileName.size() < 255 &&
+             data.fileUrl is string && data.fileUrl.size() > 0 && data.fileUrl.size() < 1000 &&
+             data.fileType is string && data.fileType.size() > 0 && data.fileType.size() < 20 &&
+             data.fileSize is number &&
+             data.uploadedAtMs is number &&
+             data.applyMode in ['sample-reference', 'hwp-template', 'hwpx-template', 'docx-template'] &&
+             optionalString(data, 'storageMode', 40) &&
+             optionalString(data, 'chunkUploadId', 80) &&
+             optionalNumber(data, 'chunkCount') &&
+             optionalNumber(data, 'chunkSize') &&
+             optionalString(data, 'notes', 5000) &&
+             optionalTimestamp(data, 'updatedAt');
+    }
+
+    function isValidTemplateChunk(data) {
+      return data.uploadId is string && data.uploadId.size() > 0 && data.uploadId.size() < 80 &&
+             data.index is number &&
+             data.data is string && data.data.size() <= 800000 &&
+             data.size is number;
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
 
-    // Students collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isAdmin() && isValidUserProfile(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
     match /students/{studentId} {
       allow read: if isStaff();
       allow create, update: if isStaff() && isValidStudent(request.resource.data);
-      allow delete: if isStaff();
+      allow delete: if isAdmin();
     }
 
-    // Payment Records collection
     match /payment_records/{recordId} {
       allow read: if isStaff();
       allow create, update: if isStaff() && isValidPaymentRecord(request.resource.data);
-      allow delete: if isStaff();
+      allow delete: if isAdmin();
     }
-    
-    // Annual Plans collection
+
     match /annual_plans/{planId} {
-      allow read, write: if isStaff();
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidAnnualPlan(request.resource.data);
+      allow delete: if isAdmin();
     }
 
-    // Monthly Journals collection
     match /monthly_journals/{journalId} {
-      allow read, write: if isStaff();
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidMonthlyJournal(request.resource.data);
+      allow delete: if isAdmin();
     }
 
-    // Document save history
     match /document_history/{historyId} {
-      allow read, write: if isStaff();
+      allow read: if isStaff();
+      allow create: if isStaff() && isValidDocumentHistory(request.resource.data);
+      allow update, delete: if isAdmin();
     }
 
-    // Guardian message writing logs
     match /message_logs/{logId} {
       allow read: if isStaff();
       allow create, update: if isStaff() && isValidMessageLog(request.resource.data);
-      allow delete: if isStaff();
+      allow delete: if isAdmin();
     }
 
-    // Schedule attendance/cancel/makeup operation records
     match /schedule_operation_records/{recordId} {
       allow read: if isStaff();
       allow create, update: if isStaff() && isValidScheduleOperation(request.resource.data);
       allow delete: if isStaff();
     }
 
-    // Document template sample files and metadata
     match /document_templates/{templateId} {
-      allow read, write: if isStaff();
+      allow read: if isStaff();
+      allow create, update: if isAdmin() && isValidDocumentTemplate(request.resource.data);
+      allow delete: if isAdmin();
     }
 
-    // Chunked template files stored under each template document.
-    match /document_templates/{templateId}/{document=**} {
-      allow read, write: if isStaff();
+    match /document_templates/{templateId}/file_chunks/{chunkId} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin() && isValidTemplateChunk(request.resource.data);
+      allow delete: if isAdmin();
     }
-    
-    // Test connection path
+
     match /test/connection {
       allow read: if true;
     }

@@ -32,26 +32,28 @@ The local server exposes:
 curl http://localhost:3000/api/health
 ```
 
-## Firebase Auth And Rules
+## Firebase Auth, Roles, And Rules
 
-Production Firestore rules now require Firebase Authentication for student, payment, document, template, and history data.
+Production Firestore rules require Firebase Authentication and a staff role for student, payment, document, template, and history data. Anonymous Auth alone is not treated as staff.
 
-Before deploying `firestore.rules`, enable:
+Enable one or both operator sign-in providers:
 
-- Firebase Console > Authentication > Sign-in method > Anonymous
+- Firebase Console > Authentication > Sign-in method > Google
+- Firebase Console > Authentication > Sign-in method > Email/Password
 
-The client can initialize anonymous auth when explicitly enabled. Keep it disabled while the Firebase project has no Anonymous provider, otherwise the browser will call `identitytoolkit.googleapis.com` and receive `auth/configuration-not-found`.
+Grant operator access with either:
 
-Enable the client-side anonymous auth call only after the Firebase Anonymous provider is active:
+- a Firebase custom claim: `{ "role": "admin" }`, `{ "role": "staff" }`, or `{ "admin": true }`
+- a Firestore profile document at `users/{uid}` with `role: "admin"` or `role: "staff"`
+- the verified bootstrap admin email configured by `VITE_BOOTSTRAP_ADMIN_EMAILS` and `SERVER_BOOTSTRAP_ADMIN_EMAILS`
 
-```bash
-VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH=true
-```
+Use `admin` for destructive tasks such as student deletion, payment-record cleanup, template upload/deletion, and user role management. Use `staff` for normal student, document, message, and schedule operations.
 
 Deploy rules:
 
 ```bash
 npm run firestore:rules:deploy
+npm run storage:rules:deploy
 ```
 
 The app writes operational logs to these collections:
@@ -66,8 +68,32 @@ Production AI calls use Vercel serverless functions:
 
 - `/api/ai/status`
 - `/api/ai/generate`
+- `/api/operations/delete-student`
 
-Set `GEMINI_API_KEY` in the Vercel project environment variables. Local `.env` values are not available to Vercel unless added there.
+These routes now require a valid Firebase ID token. AI routes allow `admin` or `staff`; student deletion requires `admin`. Set these Vercel environment variables:
+
+- `GEMINI_API_KEY`
+- `FIREBASE_PROJECT_ID`
+- `SERVER_BOOTSTRAP_ADMIN_EMAILS`
+
+Optional AI limits:
+
+- `AI_MAX_PROMPT_CHARS`
+- `AI_RATE_LIMIT_WINDOW_MS`
+- `AI_RATE_LIMIT_MAX_REQUESTS`
+- `GEMINI_ALLOWED_MODELS`
+
+Local `.env` values are not available to Vercel unless added there.
+
+## App Check
+
+The browser client initializes Firebase App Check only when this Vite environment variable is set:
+
+```bash
+VITE_FIREBASE_APPCHECK_RECAPTCHA_SITE_KEY=
+```
+
+After configuring a reCAPTCHA v3 App Check provider in Firebase Console, set the key and then enforce App Check for Firestore, Storage, and callable/custom backend endpoints as appropriate.
 
 ## Template Uploads
 
