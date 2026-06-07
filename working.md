@@ -402,3 +402,27 @@ Verification:
 Next if interrupted:
 - Run `git diff --check && npm run lint && npm run build`.
 - In the UI, edit a student, change `수업 요일` and directly type a `수업 시간`; confirm save closes immediately and annual/monthly schedule rows show the changed values.
+
+## 2026-06-07 Student Workspace Sidebar
+
+Objective:
+- 좌측 사이드바를 만들어 학생별로 모든 기능을 관리할 수 있게 한다.
+
+Change:
+- `src/App.tsx`
+  - 문서 화면 안에만 있던 학생 목록을 전역 좌측 `학생별 관리` 사이드바로 이동했다.
+  - 좌측 사이드바에서 학생 검색/선택, 연간계획서, 월간일지, 학생정보, 시간표, 임시저장, 양식, 프롬프트, 파일 업로드, 전체 초기화에 접근할 수 있게 했다.
+  - 선택 학생 요약 영역에 치료 영역, 소속, 연간 저장 여부, 해당 월 저장 여부, 임시저장 개수를 표시한다.
+  - 학생 목록의 연간/월간/임시 상태 배지를 기존 문서 상태와 연결해 유지했다.
+  - 학생을 사이드바에서 선택하면 문서 워크스페이스로 이동하고 해당 학생 데이터를 불러오도록 했다.
+  - 모바일/작은 화면에는 좌측 사이드바 대신 학생 선택과 핵심 기능 전환을 위한 압축 바를 추가했다.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `curl -fsS http://localhost:3000/api/health`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, confirm the left sidebar appears on desktop after student/payment data is available, selecting a student opens the document workspace, and sidebar buttons switch annual/monthly/docs/student info/schedule/draft/template flows.

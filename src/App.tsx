@@ -2787,6 +2787,304 @@ export default function App() {
   const effectiveAnnualTemplateKind: DocumentTemplateKind = annualTemplateSample ? 'annual_plan' : 'combined_journal';
   const effectiveMonthlyTemplate = monthlyTemplateSample || combinedTemplateSample;
   const effectiveMonthlyTemplateKind: DocumentTemplateKind = monthlyTemplateSample ? 'monthly_journal' : 'combined_journal';
+  const hasWorkspaceSidebar = isDataLoaded || studentInfos.length > 0 || fullStudentList.length > 0;
+  const selectedStudentInfo = selectedStudent ? studentInfoByName.get(selectedStudent.name) : null;
+  const selectedStudentDraftCount = selectedStudent
+    ? draftItems.filter(item => item.studentName === selectedStudent.name).length
+    : 0;
+
+  const handleSidebarStudentSelect = (name: string) => {
+    setIsDataLoaded(true);
+    setCurrentView('docs');
+    void handleStudentSelect(name);
+  };
+
+  const openStudentDocsFromSidebar = (tab?: 'annual' | 'monthly') => {
+    setIsDataLoaded(true);
+    setCurrentView('docs');
+    if (tab) setActiveTab(tab);
+  };
+
+  const handleSidebarFreshUpload = () => {
+    setIsDataLoaded(false);
+    setRawRecords([]);
+    setSelectedStudent(null);
+    setUploadStatus(null);
+    setSearchTerm('');
+    setCurrentView('docs');
+  };
+
+  const studentWorkspaceSidebar = hasWorkspaceSidebar ? (
+    <aside className="hidden lg:flex w-80 shrink-0 flex-col border-r border-border-theme bg-white no-print">
+      <div className="p-4 border-b border-border-theme">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <div className="text-[11px] font-black uppercase tracking-wider text-primary">학생별 관리</div>
+            <div className="text-lg font-black text-text-main">워크스페이스</div>
+          </div>
+          <span className="rounded-full bg-primary-light px-2.5 py-1 text-[11px] font-black text-primary">
+            {filteredStudents.length}명
+          </span>
+        </div>
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="학생 이름 검색..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-bg-theme border border-border-theme rounded-xl focus:border-primary outline-none transition-all text-sm font-medium"
+          />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted w-4 h-4" />
+        </div>
+      </div>
+
+      <div className="border-b border-border-theme p-4 bg-bg-theme/40">
+        <div className="text-[11px] font-black uppercase tracking-wider text-text-muted mb-2">선택 학생</div>
+        {selectedStudent ? (
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center text-sm font-black">
+                {getStudentDisplayName(selectedStudent.name).charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <div className="font-black text-text-main truncate">{getStudentDisplayName(selectedStudent.name)}</div>
+                <div className="text-xs font-semibold text-text-muted truncate">
+                  {selectedStudentInfo?.treatmentArea || selectedStudent.treatmentArea || '치료 영역 미정'}
+                </div>
+                <div className="text-xs text-text-muted truncate">
+                  {selectedStudentInfo?.school || selectedStudent.school || '소속 미정'}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedAnnualSaved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-white text-slate-500 border-slate-200'}`}>
+                연간
+              </span>
+              <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedMonthlySaved ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-white text-slate-500 border-slate-200'}`}>
+                {selectedMonth}월
+              </span>
+              <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedStudentDraftCount > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-white text-slate-500 border-slate-200'}`}>
+                임시 {selectedStudentDraftCount}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs font-semibold text-text-muted">
+            학생을 선택하면 문서와 관리 기능이 이곳에 묶입니다.
+          </div>
+        )}
+      </div>
+
+      <div className="border-b border-border-theme p-3">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => openStudentDocsFromSidebar('annual')}
+            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+              currentView === 'docs' && activeTab === 'annual' ? 'bg-primary text-white' : 'bg-primary-light text-primary hover:bg-blue-100'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            연간계획서
+          </button>
+          <button
+            onClick={() => openStudentDocsFromSidebar('monthly')}
+            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+              currentView === 'docs' && activeTab === 'monthly' ? 'bg-primary text-white' : 'bg-primary-light text-primary hover:bg-blue-100'
+            }`}
+          >
+            <Calendar className="h-4 w-4" />
+            월간일지
+          </button>
+          <button
+            onClick={() => setCurrentView('students')}
+            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+              currentView === 'students' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Pencil className="h-4 w-4" />
+            학생정보
+          </button>
+          <button
+            onClick={() => setCurrentView('schedule')}
+            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-black transition-all ${
+              currentView === 'schedule' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Calendar className="h-4 w-4" />
+            시간표
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-auto p-2">
+        <AnimatePresence initial={false}>
+          {filteredStudents.length > 0 ? (
+            filteredStudents.map((name) => {
+              const status = documentStatuses[name];
+              const hasAnnual = Boolean(status?.annual);
+              const hasMonthly = Boolean(status?.monthly?.[`${selectedYear}_${selectedMonth}`]);
+              const hasDraft = draftItems.some(item => item.studentName === name);
+
+              return (
+                <motion.div
+                  key={name}
+                  layout
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => handleSidebarStudentSelect(name)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      handleSidebarStudentSelect(name);
+                    }
+                  }}
+                  className={`mb-1 flex w-full cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                    selectedStudent?.name === name
+                      ? 'border-primary/20 bg-primary-light text-primary shadow-sm'
+                      : 'border-transparent text-text-main hover:bg-bg-theme'
+                  }`}
+                >
+                  <div className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-xs font-black transition-colors ${
+                    selectedStudent?.name === name ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    {getStudentDisplayName(name).charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold">{getStudentDisplayName(name)}</span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <span className={`rounded border px-1.5 py-0.5 text-[9px] font-black ${hasAnnual ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-white text-slate-400 border-slate-100'}`}>연간</span>
+                      <span className={`rounded border px-1.5 py-0.5 text-[9px] font-black ${hasMonthly ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-white text-slate-400 border-slate-100'}`}>{selectedMonth}월</span>
+                      {hasDraft && <span className="rounded border border-amber-100 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700">임시</span>}
+                    </div>
+                  </div>
+                  {!studentInfos.some(s => s.name === name) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAutoRegister(name);
+                      }}
+                      className="mt-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary transition-all hover:bg-primary hover:text-white"
+                    >
+                      등록
+                    </button>
+                  )}
+                </motion.div>
+              );
+            })
+          ) : (
+            <div className="py-10 text-center text-text-muted">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p className="text-xs font-semibold">검색 결과가 없습니다.</p>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="border-t border-border-theme p-3 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => {
+              refreshDraftItems();
+              setShowDraftModal(true);
+            }}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
+          >
+            <ArchiveRestore className="h-3.5 w-3.5" />
+            임시저장
+          </button>
+          <button
+            onClick={() => {
+              setActiveTemplateKind('combined_journal');
+              setShowTemplateModal(true);
+            }}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            양식
+          </button>
+          <button
+            onClick={() => setShowPromptModal(true)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            프롬프트
+          </button>
+          <button
+            onClick={handleSidebarFreshUpload}
+            className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            파일
+          </button>
+        </div>
+        <button
+          onClick={handleResetAllData}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-transparent py-2 text-[11px] font-bold text-red-500 transition-all hover:border-red-100 hover:bg-red-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          저장된 전체 내역 초기화
+        </button>
+      </div>
+    </aside>
+  ) : null;
+  const studentWorkspaceMobileBar = hasWorkspaceSidebar ? (
+    <div className="lg:hidden no-print border-b border-border-theme bg-white p-3 space-y-2">
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <select
+            value={selectedStudent?.name || ''}
+            onChange={(e) => {
+              if (e.target.value) handleSidebarStudentSelect(e.target.value);
+            }}
+            className="w-full appearance-none rounded-xl border border-border-theme bg-bg-theme px-3 py-2.5 pr-8 text-sm font-bold text-text-main outline-none focus:border-primary"
+          >
+            <option value="">학생 선택</option>
+            {filteredStudents.map(name => (
+              <option key={name} value={name}>{getStudentDisplayName(name)}</option>
+            ))}
+          </select>
+          <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+        </div>
+        <button
+          onClick={() => setCurrentView('students')}
+          className={`rounded-xl px-3 py-2 text-xs font-black ${currentView === 'students' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+        >
+          학생정보
+        </button>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        <button
+          onClick={() => openStudentDocsFromSidebar('annual')}
+          className={`rounded-lg px-2 py-2 text-[11px] font-black ${currentView === 'docs' && activeTab === 'annual' ? 'bg-primary text-white' : 'bg-primary-light text-primary'}`}
+        >
+          연간
+        </button>
+        <button
+          onClick={() => openStudentDocsFromSidebar('monthly')}
+          className={`rounded-lg px-2 py-2 text-[11px] font-black ${currentView === 'docs' && activeTab === 'monthly' ? 'bg-primary text-white' : 'bg-primary-light text-primary'}`}
+        >
+          월간
+        </button>
+        <button
+          onClick={() => setCurrentView('schedule')}
+          className={`rounded-lg px-2 py-2 text-[11px] font-black ${currentView === 'schedule' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+        >
+          시간표
+        </button>
+        <button
+          onClick={() => {
+            refreshDraftItems();
+            setShowDraftModal(true);
+          }}
+          className="rounded-lg bg-slate-100 px-2 py-2 text-[11px] font-black text-slate-700"
+        >
+          임시
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
@@ -2932,23 +3230,27 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {currentView === 'students' ? (
-          <StudentManagement
-            studentInfos={studentInfos}
-            onAdd={handleAddStudentInfo}
-            onUpdate={handleUpdateStudentInfo}
-            onDelete={handleDeleteStudentInfo}
-            onGenerateDocument={handleGenerateFromManagement}
-            onUploadReference={handleUploadReference}
-            onUploadAttachment={handleUploadAttachment}
-            onDeleteAttachment={handleDeleteAttachment}
-          />
-        ) : currentView === 'schedule' ? (
-          <ScheduleManager
-            studentInfos={studentInfos}
-            paymentRecords={allPaymentRecords}
-          />
-        ) : !isDataLoaded ? (
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {studentWorkspaceSidebar}
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {studentWorkspaceMobileBar}
+            {currentView === 'students' ? (
+              <StudentManagement
+                studentInfos={studentInfos}
+                onAdd={handleAddStudentInfo}
+                onUpdate={handleUpdateStudentInfo}
+                onDelete={handleDeleteStudentInfo}
+                onGenerateDocument={handleGenerateFromManagement}
+                onUploadReference={handleUploadReference}
+                onUploadAttachment={handleUploadAttachment}
+                onDeleteAttachment={handleDeleteAttachment}
+              />
+            ) : currentView === 'schedule' ? (
+              <ScheduleManager
+                studentInfos={studentInfos}
+                paymentRecords={allPaymentRecords}
+              />
+            ) : !isDataLoaded ? (
           <div className="flex-1 flex flex-col items-center px-6 py-12 md:py-20 no-print overflow-auto">
             {/* Hero Section */}
             <motion.div
@@ -3052,108 +3354,6 @@ export default function App() {
           </div>
         ) : (
           <div className="flex-1 flex overflow-hidden">
-            {/* Sidebar - Student List */}
-            <aside className="w-80 border-r border-border-theme bg-white flex flex-col no-print">
-              <div className="p-4 border-b border-border-theme bg-bg-theme/30">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="학생 이름 검색..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-border-theme rounded-xl focus:border-primary outline-none transition-all text-sm font-medium shadow-sm"
-                  />
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted w-4 h-4" />
-                </div>
-                <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-text-muted uppercase tracking-wider px-1">
-                  <span>학생 목록</span>
-                  <span className="bg-primary-light text-primary px-2 py-0.5 rounded-full">{filteredStudents.length}명</span>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-auto p-2 space-y-1">
-                <AnimatePresence initial={false}>
-                  {filteredStudents.length > 0 ? (
-                    filteredStudents.map((name) => {
-                      const status = documentStatuses[name];
-                      const hasAnnual = Boolean(status?.annual);
-                      const hasMonthly = Boolean(status?.monthly?.[`${selectedYear}_${selectedMonth}`]);
-                      const hasDraft = draftItems.some(item => item.studentName === name);
-
-                      return (
-                        <motion.div
-                          key={name}
-                          layout
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          onClick={() => handleStudentSelect(name)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              handleStudentSelect(name);
-                            }
-                          }}
-                          className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl transition-all text-left group cursor-pointer ${
-                            selectedStudent?.name === name
-                              ? 'bg-primary-light text-primary shadow-sm border border-primary/10'
-                              : 'hover:bg-bg-theme text-text-main border border-transparent'
-                          }`}
-                        >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs transition-colors ${
-                            selectedStudent?.name === name ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-white'
-                          }`}>
-                            {name.charAt(0)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <span className="font-semibold text-sm block truncate">{getStudentDisplayName(name)}</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border ${hasAnnual ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>연간</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border ${hasMonthly ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>{selectedMonth}월</span>
-                              {hasDraft && <span className="px-1.5 py-0.5 rounded text-[9px] font-black border bg-amber-50 text-amber-700 border-amber-100">임시</span>}
-                            </div>
-                          </div>
-
-                          <div className="ml-auto flex items-center gap-2">
-                            {!studentInfos.some(s => s.name === name) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAutoRegister(name);
-                                }}
-                                className="px-2 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-md hover:bg-primary hover:text-white transition-all"
-                              >
-                                정보 등록
-                              </button>
-                            )}
-                            {selectedStudent?.name === name && (
-                              <motion.div layoutId="active-indicator" className="w-1.5 h-1.5 rounded-full bg-primary mt-3" />
-                            )}
-                          </div>
-                        </motion.div>
-                      );
-                    })
-                  ) : (
-                    <div className="py-12 text-center text-text-muted">
-                      <Search className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                      <p className="text-xs">검색 결과가 없습니다.</p>
-                    </div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="p-4 border-t border-border-theme bg-bg-theme/10">
-                <button
-                  onClick={handleResetAllData}
-                  className="w-full flex items-center justify-center gap-2 py-2 text-[11px] font-bold text-red-500 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  저장된 전체 내역 초기화
-                </button>
-              </div>
-            </aside>
-
             {/* Content Area - Document Preview */}
             <div className="flex-1 flex flex-col overflow-hidden bg-bg-theme/50 min-h-0">
               {!selectedStudent ? (
@@ -3657,7 +3857,9 @@ export default function App() {
               )}
             </div>
           </div>
-        )}
+            )}
+          </div>
+        </div>
       </main>
 
       {/* Footer - Hidden on Print */}
