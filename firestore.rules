@@ -1,5 +1,11 @@
 // ===============================================================
 // Assumed Data Model
+// IMPORTANT:
+// - These production rules require Firebase Authentication.
+// - The client initializes Anonymous Auth so a single-operator deployment can
+//   keep the existing no-login workflow while blocking unauthenticated public
+//   reads/writes.
+// - Enable Authentication > Anonymous provider before deploying these rules.
 // ===============================================================
 //
 // Collection: students
@@ -48,22 +54,32 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-    
     function isAdmin() {
       return isAuthenticated() && 
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
          (request.auth.token.email == "audifox1@gmail.com" && request.auth.token.email_verified == true));
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function isStaff() {
+      return isAuthenticated();
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function optionalString(data, field, maxSize) {
+      let value = data.get(field, null);
+      return value == null ||
+             (value is string && value.size() <= maxSize);
+    }
+
+    function optionalBool(data, field) {
+      let value = data.get(field, null);
+      return value == null ||
+             value is bool;
+    }
+
+    function optionalTimestamp(data, field) {
+      let value = data.get(field, null);
+      return value == null ||
+             value is timestamp;
     }
 
     // ===============================================================
@@ -74,7 +90,16 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.birthDate is string && data.birthDate.size() < 20 &&
              data.school is string && data.school.size() < 100 &&
-             data.treatmentArea is string && data.treatmentArea.size() < 100;
+             data.treatmentArea is string && data.treatmentArea.size() < 100 &&
+             optionalString(data, 'disabilityType', 100) &&
+             optionalString(data, 'therapistName', 100) &&
+             optionalString(data, 'guardianName', 100) &&
+             optionalString(data, 'guardianPhone', 30) &&
+             optionalString(data, 'guardianRelation', 50) &&
+             optionalBool(data, 'messageConsent') &&
+             optionalString(data, 'scheduleDay', 20) &&
+             optionalString(data, 'scheduleTime', 50) &&
+             optionalString(data, 'scheduleFrequency', 20);
     }
 
     function isValidPaymentRecord(data) {
@@ -82,51 +107,97 @@ service cloud.firestore {
              data.transactionDate is string && data.transactionDate.size() > 0 && data.transactionDate.size() < 50 &&
              data.treatmentArea is string && data.treatmentArea.size() < 100 &&
              (data.amount is number || data.amount is string) &&
-             data.createdAt is timestamp;
+             optionalString(data, 'transactionTime', 20) &&
+             optionalTimestamp(data, 'createdAt') &&
+             optionalTimestamp(data, 'updatedAt');
+    }
+
+    function isValidMessageLog(data) {
+      return data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.year is number &&
+             data.month is number &&
+             data.templateKey is string && data.templateKey.size() < 30 &&
+             data.targetPhone is string && data.targetPhone.size() < 40 &&
+             data.message is string && data.message.size() < 5000 &&
+             data.action is string && data.action.size() < 30 &&
+             data.createdAtMs is number &&
+             optionalTimestamp(data, 'createdAt');
+    }
+
+    function isValidScheduleOperation(data) {
+      return data.date is string && data.date.size() > 0 && data.date.size() < 20 &&
+             data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.time is string && data.time.size() < 50 &&
+             data.status is string && data.status.size() < 30 &&
+             data.note is string && data.note.size() < 2000 &&
+             data.updatedAtMs is number &&
+             optionalTimestamp(data, 'updatedAt');
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
 
-    // WARNING: Authentication is disabled. Anyone with your project ID can read/write data.
-    // In a production app, you should re-enable Auth and restrict these rules.
-
     // Students collection
     match /students/{studentId} {
-      allow read, create, update: if true;
-      allow delete: if true;
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidStudent(request.resource.data);
+      allow delete: if isStaff();
     }
 
     // Payment Records collection
     match /payment_records/{recordId} {
-      allow read, create: if true;
-      allow update, delete: if true;
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidPaymentRecord(request.resource.data);
+      allow delete: if isStaff();
     }
     
     // Annual Plans collection
     match /annual_plans/{planId} {
-      allow read, write: if true;
+      allow read, write: if isStaff();
     }
 
     // Monthly Journals collection
     match /monthly_journals/{journalId} {
-      allow read, write: if true;
+      allow read, write: if isStaff();
+    }
+
+    // Document save history
+    match /document_history/{historyId} {
+      allow read, write: if isStaff();
+    }
+
+    // Guardian message writing logs
+    match /message_logs/{logId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidMessageLog(request.resource.data);
+      allow delete: if isStaff();
+    }
+
+    // Schedule attendance/cancel/makeup operation records
+    match /schedule_operation_records/{recordId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isValidScheduleOperation(request.resource.data);
+      allow delete: if isStaff();
     }
 
     // Document template sample files and metadata
     match /document_templates/{templateId} {
-      allow read, write: if true;
+      allow read, write: if isStaff();
     }
 
     // Chunked template files stored under each template document.
     match /document_templates/{templateId}/{document=**} {
-      allow read, write: if true;
+      allow read, write: if isStaff();
     }
     
     // Test connection path
     match /test/connection {
       allow read: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

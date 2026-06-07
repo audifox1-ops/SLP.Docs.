@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, CheckCircle2, CircleDashed, AlertCircle, Save, X, RotateCcw } from 'lucide-react';
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { StudentInfo, PaymentRecord } from '../types';
+import { db } from '../firebase';
 import { getScheduleDayNumber } from '../utils/studentSchedule';
 
 interface Props {
@@ -143,7 +145,30 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     localStorage.setItem(SESSION_OPERATION_STORAGE_KEY, JSON.stringify(operationRecords));
   }, [operationRecords]);
 
-  const getSessionOperationKey = (date: string, studentName: string) => `${date}_${studentName}`;
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'schedule_operation_records'), {
+      next: (snapshot) => {
+        const nextRecords: Record<string, SessionOperationRecord> = {};
+        snapshot.docs.forEach(docSnap => {
+          const record = { key: docSnap.id, ...docSnap.data() } as SessionOperationRecord;
+          if (record.date && record.studentName && record.status) {
+            nextRecords[record.key] = record;
+          }
+        });
+        setOperationRecords(nextRecords);
+      },
+      error: (error) => {
+        console.warn('Schedule operation listener error:', error);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const getSessionOperationKey = (date: string, studentName: string) => {
+    const safeName = studentName.replace(/[^a-zA-Z0-9가-힣_-]/g, '');
+    return `${date}_${safeName}`;
+  };
 
   const buildScheduleEvent = (date: string, name: string, time: string, isActual: boolean): ScheduleEvent => {
     const key = getSessionOperationKey(date, name);
@@ -165,7 +190,7 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     setEditingNote(event.note);
   };
 
-  const saveOperationRecord = () => {
+  const saveOperationRecord = async () => {
     if (!editingEvent) return;
     const record: SessionOperationRecord = {
       key: editingEvent.key,
@@ -178,9 +203,17 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
     };
     setOperationRecords(prev => ({ ...prev, [record.key]: record }));
     setEditingEvent(null);
+    try {
+      await setDoc(doc(db, 'schedule_operation_records', record.key), {
+        ...record,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.warn('Schedule operation save failed:', error);
+    }
   };
 
-  const resetOperationRecord = () => {
+  const resetOperationRecord = async () => {
     if (!editingEvent) return;
     setOperationRecords(prev => {
       const next = { ...prev };
@@ -188,6 +221,11 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
       return next;
     });
     setEditingEvent(null);
+    try {
+      await deleteDoc(doc(db, 'schedule_operation_records', editingEvent.key));
+    } catch (error) {
+      console.warn('Schedule operation reset failed:', error);
+    }
   };
 
   const currentMonthOperationSummary = useMemo(() => {

@@ -520,3 +520,44 @@ Next if interrupted:
 - In the UI, register/edit a student with guardian contact fields, open `메시지 작성`, switch templates, copy or open SMS, and confirm the recent log appears.
 - Upload a small CSV/XLSX payment file, confirm the preview appears before save, run `확정 저장`, then use `최근 업로드 되돌리기` to verify rollback behavior.
 - Open `시간표 관리`, click an expected or paid session, change status/note, save, and confirm the event color/status and current-month summary update.
+
+## 2026-06-07 Security And Monthly Submission Dashboard
+
+Objective:
+- 추천 개발 순서에 따라 보안 기반을 먼저 강화한다.
+- 사용자가 실제로 필요할 가능성이 높은 학생별 월마감/제출 현황 기능을 추가한다.
+
+Change:
+- `src/firebase.ts`
+  - Added Firebase Anonymous Auth initialization helper.
+- `src/App.tsx`
+  - Initializes anonymous auth on app start and shows a warning if Anonymous Auth is not enabled.
+  - Adds a monthly submission dashboard on the home screen.
+  - The dashboard shows annual plan status, selected-month journal status, payment record count vs expected count, guardian contact readiness, and missing issue count per student.
+  - Each dashboard row can open the student's monthly journal workflow.
+  - Message copy/SMS-open logs are now saved to Firestore `message_logs` while retaining localStorage as a local cache.
+- `src/components/ScheduleManager.tsx`
+  - Schedule operation records are now synchronized with Firestore `schedule_operation_records` while retaining localStorage as a local cache.
+- `firestore.rules`
+  - Replaced public read/write access with authenticated staff access.
+  - Added basic student and payment record validation.
+  - Added rules for `document_history`, which the app already uses.
+  - Added rules for `message_logs` and `schedule_operation_records`.
+  - Kept `/test/connection` public read-only for startup connectivity checks.
+- `README.md`
+  - Rewrote the project goal and workflow documentation around the current SLP student operations app.
+  - Added Anonymous Auth setup guidance before deploying Firestore rules.
+  - Documented the remaining `xlsx` security risk.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `npm audit --omit=dev --audit-level=moderate`: still fails on the known `xlsx` high severity advisories with no upstream fix.
+- `npx firebase-tools deploy --only firestore:rules --project slp-docs --dry-run --non-interactive`: blocked because Firebase CLI is not logged in.
+- `npx firebase-tools emulators:exec --only firestore "true"`: blocked because Java Runtime is not installed.
+
+Next if interrupted:
+- Enable Firebase Console > Authentication > Anonymous before deploying `firestore.rules`.
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, confirm the home dashboard shows `이번 달 제출 현황` rows and that `월간 열기` selects the target student.

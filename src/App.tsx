@@ -19,7 +19,7 @@ import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storag
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
 import { getScheduleDayNumber, normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
-import { db, OperationType, handleFirestoreError } from './firebase';
+import { db, OperationType, handleFirestoreError, ensureAnonymousAuth } from './firebase';
 import {
   collection,
   addDoc,
@@ -387,6 +387,30 @@ export default function App() {
   const [batchResults, setBatchResults] = useState<BatchMonthResult[]>([]);
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [preflightIssues, setPreflightIssues] = useState<string[]>([]);
+  const [authStatus, setAuthStatus] = useState<{ state: 'checking' | 'ready' | 'error'; message: string }>({
+    state: 'checking',
+    message: '보안 인증을 준비하고 있습니다.'
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    ensureAnonymousAuth()
+      .then(() => {
+        if (!mounted) return;
+        setAuthStatus({ state: 'ready', message: '보안 인증이 활성화되었습니다.' });
+      })
+      .catch((error) => {
+        console.warn('Anonymous auth failed:', error);
+        if (!mounted) return;
+        setAuthStatus({
+          state: 'error',
+          message: 'Firebase Anonymous Auth가 꺼져 있습니다. 보안 규칙 배포 전 Firebase Console에서 익명 인증을 활성화해 주세요.'
+        });
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Firestore Listeners
   useEffect(() => {
@@ -584,6 +608,24 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('message_logs', JSON.stringify(messageLogs.slice(0, 80)));
   }, [messageLogs]);
+
+  useEffect(() => {
+    const unsubMessageLogs = onSnapshot(collection(db, 'message_logs'), {
+      next: (snapshot) => {
+        const logs = snapshot.docs
+          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as MessageLogEntry))
+          .filter(log => typeof log.createdAtMs === 'number')
+          .sort((a, b) => b.createdAtMs - a.createdAtMs)
+          .slice(0, 80);
+        setMessageLogs(logs);
+      },
+      error: (err) => {
+        console.warn('Message log listener error:', err);
+      }
+    });
+
+    return () => unsubMessageLogs();
+  }, []);
 
   const refreshDraftItems = () => {
     const drafts: DraftItem[] = [];
@@ -3149,6 +3191,35 @@ export default function App() {
     return expected > 0 && actual < expected;
   });
   const contactAttentionStudents = studentInfos.filter(info => !info.guardianPhone || !info.messageConsent);
+  const monthlyCloseRows = studentInfos
+    .map(info => {
+      const expectedPaymentCount = getExpectedMonthlySessionCount(info);
+      const actualPaymentCount = getGenericMonthlyPaymentRecords(info.name, selectedYear, selectedMonth).length;
+      const status = documentStatuses[info.name];
+      const hasAnnual = Boolean(status?.annual);
+      const hasMonthly = Boolean(status?.monthly?.[`${selectedYear}_${selectedMonth}`]);
+      const contactReady = Boolean(info.guardianPhone && info.messageConsent);
+      const paymentReady = expectedPaymentCount === 0 ? actualPaymentCount > 0 : actualPaymentCount >= expectedPaymentCount;
+      const issues = [
+        hasAnnual ? '' : '연간계획서',
+        hasMonthly ? '' : `${selectedMonth}월 일지`,
+        paymentReady ? '' : '결제 확인',
+        contactReady ? '' : '연락처/동의'
+      ].filter(Boolean);
+
+      return {
+        info,
+        expectedPaymentCount,
+        actualPaymentCount,
+        hasAnnual,
+        hasMonthly,
+        contactReady,
+        paymentReady,
+        issues
+      };
+    })
+    .sort((a, b) => b.issues.length - a.issues.length || a.info.name.localeCompare(b.info.name));
+  const monthlyCloseReadyCount = monthlyCloseRows.filter(row => row.issues.length === 0).length;
   const selectedScheduleLabel = selectedStudent
     ? `${selectedStudent.schedule.day || '요일 미정'} · ${selectedStudent.schedule.time || '시간 미정'}`
     : '학생 선택 필요';
@@ -3244,7 +3315,7 @@ export default function App() {
     privacyMode
   ]);
 
-  const addMessageLog = (action: MessageLogEntry['action']) => {
+  const addMessageLog = async (action: MessageLogEntry['action']) => {
     const entry: MessageLogEntry = {
       id: `msg_${Date.now()}`,
       studentName: selectedStudent?.name || '미선택',
@@ -3257,12 +3328,20 @@ export default function App() {
       createdAtMs: Date.now()
     };
     setMessageLogs(prev => [entry, ...prev].slice(0, 80));
+    try {
+      await setDoc(doc(db, 'message_logs', entry.id), {
+        ...entry,
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.warn('Message log save failed:', error);
+    }
   };
 
   const copySelectedMessage = async () => {
     try {
       await navigator.clipboard.writeText(messageDraftText);
-      addMessageLog('copied');
+      void addMessageLog('copied');
       setUploadStatus({ type: 'success', message: '메시지 내용을 클립보드에 복사했습니다.' });
     } catch {
       setUploadStatus({ type: 'error', message: '클립보드 복사 권한이 없어 메시지를 직접 선택해 복사해 주세요.' });
@@ -3271,7 +3350,7 @@ export default function App() {
   };
 
   const openSmsDraft = () => {
-    addMessageLog('sms-opened');
+    void addMessageLog('sms-opened');
     const phone = selectedGuardianPhone.replace(/[^0-9+]/g, '');
     window.location.href = `sms:${phone}?body=${encodeURIComponent(messageDraftText)}`;
   };
@@ -3736,6 +3815,17 @@ export default function App() {
               {uploadStatus.message}
             </motion.div>
           )}
+          {authStatus.state === 'error' && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: -20, x: '-50%' }}
+              className="fixed top-20 left-1/2 z-50 flex max-w-xl items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/95 px-6 py-3 text-sm font-semibold text-amber-800 shadow-xl backdrop-blur-md"
+            >
+              <ShieldCheck className="h-5 w-5" />
+              {authStatus.message}
+            </motion.div>
+          )}
         </AnimatePresence>
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -3819,6 +3909,107 @@ export default function App() {
                         <div className="mt-1 text-xs font-bold text-text-muted">{item.label}</div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="rounded-lg border border-border-theme bg-white shadow-sm">
+                    <div className="flex flex-col gap-2 border-b border-border-theme px-5 py-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                          <ClipboardCheck className="h-4 w-4 text-primary" />
+                          이번 달 제출 현황
+                        </div>
+                        <div className="mt-1 text-xs font-semibold text-text-muted">
+                          {selectedYear}년 {selectedMonth}월 · 완료 {monthlyCloseReadyCount}명 / 전체 {monthlyCloseRows.length}명
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setCurrentView('students')}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border-theme bg-white px-3 py-2 text-xs font-black text-text-main hover:bg-bg-theme"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        학생정보 확인
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[760px] text-xs">
+                        <thead className="bg-slate-50 text-text-muted">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-black">학생</th>
+                            <th className="px-4 py-3 text-left font-black">연간</th>
+                            <th className="px-4 py-3 text-left font-black">월간</th>
+                            <th className="px-4 py-3 text-left font-black">결제</th>
+                            <th className="px-4 py-3 text-left font-black">연락</th>
+                            <th className="px-4 py-3 text-left font-black">상태</th>
+                            <th className="px-4 py-3 text-right font-black">작업</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthlyCloseRows.slice(0, 12).map(row => (
+                            <tr key={row.info.name} className="border-t border-border-theme/70">
+                              <td className="px-4 py-3">
+                                <div className="font-black text-text-main">{getStudentDisplayName(row.info.name)}</div>
+                                <div className="mt-0.5 font-semibold text-text-muted">{row.info.treatmentArea || '영역 미정'} · {row.info.school || '소속 미정'}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex rounded-full border px-2 py-1 font-black ${row.hasAnnual ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                  {row.hasAnnual ? '저장됨' : '필요'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex rounded-full border px-2 py-1 font-black ${row.hasMonthly ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                  {row.hasMonthly ? '저장됨' : '필요'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 font-bold text-text-main">
+                                {row.actualPaymentCount}건
+                                {row.expectedPaymentCount > 0 && <span className="text-text-muted"> / 예상 {row.expectedPaymentCount}회</span>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex rounded-full border px-2 py-1 font-black ${row.contactReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                  {row.contactReady ? '가능' : '확인'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {row.issues.length === 0 ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 font-black text-emerald-700">
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    제출 가능
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-2 py-1 font-black text-red-700">
+                                    {row.issues.length}건 확인
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    setActiveTab('monthly');
+                                    handleSidebarStudentSelect(row.info.name);
+                                  }}
+                                  className="rounded-lg bg-primary px-3 py-2 font-black text-white hover:bg-primary-dark"
+                                >
+                                  월간 열기
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {monthlyCloseRows.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="px-4 py-10 text-center font-semibold text-text-muted">
+                                등록된 학생이 없습니다.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {monthlyCloseRows.length > 12 && (
+                      <div className="border-t border-border-theme px-5 py-3 text-xs font-semibold text-text-muted">
+                        상위 확인 대상 12명만 표시합니다. 전체 목록은 학생별 관리에서 확인하세요.
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_0.75fr]">

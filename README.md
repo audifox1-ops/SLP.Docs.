@@ -1,47 +1,96 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# SLP.Docs
 
-# Run and deploy your AI Studio app
+SLP.Docs is a student operations workspace for therapy support work. It helps a therapist manage students, schedules, payment records, guardian messages, annual plans, monthly journals, sample templates, and month-end submission readiness in one app.
 
-This contains everything you need to run your app locally.
+## Core Workflow
 
-View your app in AI Studio: https://ai.studio/apps/f6c3d59c-c8ab-4ba0-973b-32245977679a
+- Register student profile, guardian contact, therapy area, therapist, and weekly schedule.
+- Upload payment records from CSV/XLS/XLSX with a preview before saving.
+- Generate and edit annual plans and monthly journals.
+- Compare monthly journal dates against payment records.
+- Track schedule operation status such as planned, attended, absent, cancelled, and makeup.
+- Write guardian messages from templates and open an SMS draft.
+- Review the monthly submission dashboard to find missing documents, payment issues, and contact issues.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+Prerequisites:
+- Node.js
+- Firebase project configuration in `firebase-applet-config.json`
+- `GEMINI_API_KEY` in `.env` for AI generation
 
+Commands:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in `.env` to your Gemini API key. If Google reports the key as leaked, revoke it, create a new key, update `.env`, and restart the server.
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+npm run dev
+```
 
-## Vercel AI API
+The local server exposes:
 
-Production AI calls use Vercel serverless functions at `/api/ai/status` and `/api/ai/generate`. Set `GEMINI_API_KEY` in the Vercel project environment variables for production; local `.env` values are not available to Vercel unless they are added there.
+```bash
+curl http://localhost:3000/api/health
+```
 
-## Monthly Template Uploads
+## Firebase Auth And Rules
 
-Combined annual/monthly, annual-only, and monthly-only sample templates are stored in Firestore chunks under `document_templates/{templateId}/file_chunks`, so the production upload flow does not depend on browser writes to Firebase Storage.
+Production Firestore rules now require Firebase Authentication for student, payment, document, template, and history data.
 
-Use `combined_journal` when one sample file contains both the annual plan and monthly journal forms. Use `annual_plan` or `monthly_journal` only for separate templates. HWP, HWPX, and DOCX templates are automatically filled during document download when they contain placeholders such as `{{studentName}}`, `{{therapyPeriod}}`, `{{startYear}}`, `{{endMonth}}`, `{{annualTherapyPeriod}}`, `{{annualCurrentLevelText}}`, `{{month1Goal}}`, `{{monthlyGoal}}`, or `{{session1Content}}`. Binary HWP files are converted to HWPX before filling, and SLP annual/monthly journal sample tables are also filled by matching their labels when no placeholders are present. The app does not create fake `.hwp` files from HTML; fallback downloads are valid DOCX files to avoid corrupted Hangul downloads.
+Before deploying `firestore.rules`, enable:
 
-After changing `firestore.rules`, deploy the rules before testing template uploads in production:
+- Firebase Console > Authentication > Sign-in method > Anonymous
+
+The client initializes anonymous auth automatically so the app can keep the current no-login operator workflow while preventing unauthenticated public reads and writes.
+
+Deploy rules:
 
 ```bash
 npm run firestore:rules:deploy
 ```
 
+The app writes operational logs to these collections:
+
+- `message_logs`
+- `schedule_operation_records`
+- `document_history`
+
+## AI API
+
+Production AI calls use Vercel serverless functions:
+
+- `/api/ai/status`
+- `/api/ai/generate`
+
+Set `GEMINI_API_KEY` in the Vercel project environment variables. Local `.env` values are not available to Vercel unless added there.
+
+## Template Uploads
+
+Combined annual/monthly, annual-only, and monthly-only sample templates are stored in Firestore chunks under:
+
+```text
+document_templates/{templateId}/file_chunks
+```
+
+Use:
+
+- `combined_journal` when one sample file contains both annual plan and monthly journal forms.
+- `annual_plan` for annual-only templates.
+- `monthly_journal` for monthly-only templates.
+
+HWP, HWPX, and DOCX templates are automatically filled during document download when placeholders or recognized SLP sample table labels are present. Fallback downloads are valid DOCX files.
+
 ## Firebase Storage CORS
 
-Other file uploads still use Firebase Storage. If those uploads fail on `https://slp-docs.vercel.app` with a CORS preflight error, apply the Storage bucket CORS policy:
+Some non-template uploads still use Firebase Storage. If uploads fail on production with a CORS preflight error, apply the bucket CORS policy:
 
 ```bash
 npm run storage:cors
 npm run storage:cors:show
 ```
 
-This requires Google Cloud CLI authentication with permission to update the `slp-docs.firebasestorage.app` bucket. In Google Cloud Shell, run it from the repository root.
+This requires Google Cloud CLI authentication with permission to update the `slp-docs.firebasestorage.app` bucket.
+
+## Known Technical Risks
+
+- `xlsx` still reports high severity advisories with no upstream fix. Prefer CSV uploads for sensitive workflows until XLS/XLSX parsing is replaced or isolated.
+- `src/App.tsx` is large and should be split into focused hooks/components for payment imports, message workflow, document state, and dashboard logic.
