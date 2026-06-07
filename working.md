@@ -747,3 +747,40 @@ Recommended follow-up features:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - Review `src/App.tsx` around the header, main landmark, status notifications, and upload target.
+
+## 2026-06-07 Purpose Fit UX Review
+
+Objective:
+- Find app features that are designed in a way that does not match the user's purpose.
+- Fix the clearest mismatch.
+- Recommend features that would better serve the single-operator SLP student operations workflow.
+
+Finding:
+- The sidebar action `저장된 전체 내역 초기화` was misleading. The handler deleted only `payment_records`, not all app data, so the label and confirmation text could make the operator misunderstand whether students, documents, messages, and templates would also be deleted.
+- The `프롬프트` label was developer-oriented. The same feature is useful, but a therapist-facing app should name it by the user's task: setting AI writing guidance.
+
+Change:
+- `src/App.tsx`
+  - Renamed `handleResetAllData` to `handleDeleteAllPaymentRecords`.
+  - Changed the destructive action label to `결제/수업료 내역 전체 삭제`.
+  - Updated confirmation copy to state that only payment/class-fee records are deleted and students, documents, messages, and templates remain.
+  - Added a typed confirmation phrase, `결제내역 삭제`, before the bulk delete proceeds.
+  - Updated empty/success/error messages to say `결제/수업료 내역`.
+  - Renamed visible `프롬프트` UI copy to `AI 작성 지침` or `AI 지침`.
+
+Recommended features:
+- Monthly close checklist: one row per student with status for student info, payment records, monthly journal, guardian message, and submission readiness.
+- Mismatch triage queue: grouped list of payment/date mismatches, missing guardian phone, missing journal, missing annual plan, and missing template issues.
+- One-click month handoff: after finishing a student's monthly journal, generate guardian message draft and mark the row as ready/submitted.
+- Bulk export packet: export selected students' annual/monthly documents with a generated checklist summary.
+- Safer import history: show all payment imports with file name, row count, saved count, skipped count, and rollback availability beyond only the latest import.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `node -e "await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- Review `src/App.tsx` around `handleDeleteAllPaymentRecords`, the sidebar destructive action, and the AI writing guidance modal.

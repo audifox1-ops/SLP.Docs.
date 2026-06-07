@@ -772,8 +772,20 @@ export default function App() {
   const [lastPaymentImport, setLastPaymentImport] = useState<LastPaymentImport | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleResetAllData = async () => {
-    if (!window.confirm("정말 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
+  const handleDeleteAllPaymentRecords = async () => {
+    const confirmText = '결제내역 삭제';
+    if (!window.confirm(
+      '등록된 결제/수업료 내역만 모두 삭제합니다.\n\n' +
+      '학생 정보, 작성한 서류, 메시지 이력, 샘플 양식은 삭제하지 않습니다.\n' +
+      '이 작업은 되돌릴 수 없습니다.'
+    )) return;
+
+    const typed = window.prompt(`계속하려면 "${confirmText}"를 입력해 주세요.`);
+    if (typed !== confirmText) {
+      setUploadStatus({ type: 'error', message: '결제/수업료 내역 전체 삭제가 취소되었습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -781,10 +793,11 @@ export default function App() {
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) {
-        setUploadStatus({ type: 'error', message: '삭제할 데이터가 없습니다.' });
+        setUploadStatus({ type: 'error', message: '삭제할 결제/수업료 내역이 없습니다.' });
         return;
       }
 
+      const deleteCount = snapshot.size;
       const BATCH_LIMIT = 450;
       let batch = writeBatch(db);
       let pendingDeletes = 0;
@@ -803,10 +816,10 @@ export default function App() {
       if (pendingDeletes > 0) {
         await batch.commit();
       }
-      setUploadStatus({ type: 'success', message: '모든 데이터가 초기화되었습니다.' });
+      setUploadStatus({ type: 'success', message: `결제/수업료 내역 ${deleteCount}건을 삭제했습니다.` });
     } catch (err) {
-      console.error("Reset failed:", err);
-      setUploadStatus({ type: 'error', message: '데이터 초기화 중 오류가 발생했습니다.' });
+      console.error("Payment record delete failed:", err);
+      setUploadStatus({ type: 'error', message: '결제/수업료 내역 삭제 중 오류가 발생했습니다.' });
     } finally {
       setIsLoading(false);
       setTimeout(() => setUploadStatus(null), 3000);
@@ -3556,7 +3569,7 @@ export default function App() {
             className="flex items-center justify-center gap-2 rounded-xl bg-white border border-border-theme px-3 py-2 text-[11px] font-black text-text-main hover:bg-bg-theme"
           >
             <Settings className="h-3.5 w-3.5" />
-            프롬프트
+            AI 지침
           </button>
           <button
             onClick={() => setShowMessageModal(true)}
@@ -3583,11 +3596,12 @@ export default function App() {
           최근 업로드 되돌리기
         </button>
         <button
-          onClick={handleResetAllData}
+          onClick={handleDeleteAllPaymentRecords}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-transparent py-2 text-[11px] font-bold text-red-500 transition-all hover:border-red-100 hover:bg-red-50"
+          title="학생 정보와 서류는 유지하고 결제/수업료 내역만 전체 삭제합니다."
         >
           <Trash2 className="h-3.5 w-3.5" />
-          저장된 전체 내역 초기화
+          결제/수업료 내역 전체 삭제
         </button>
       </div>
     </aside>
@@ -3716,7 +3730,7 @@ export default function App() {
             className="text-sm font-semibold text-text-muted hover:text-primary transition-colors flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary-light"
           >
             <Settings className="w-4 h-4" />
-            프롬프트
+            AI 작성 지침
           </button>
           <button
             onClick={() => {
@@ -5108,9 +5122,9 @@ export default function App() {
               <div>
                 <h3 className="text-xl font-black text-text-main flex items-center gap-2">
                   <Settings className="w-5 h-5 text-primary" />
-                  AI 프롬프트 템플릿
+                  AI 작성 지침
                 </h3>
-                <p className="text-sm text-text-muted mt-1">생성 프롬프트에 추가로 반영할 기관별 작성 지침입니다.</p>
+                <p className="text-sm text-text-muted mt-1">AI가 연간계획서와 월별일지를 작성할 때 반영할 기관별 문체와 작성 기준입니다.</p>
               </div>
               <button onClick={() => setShowPromptModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
             </div>
@@ -5144,7 +5158,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setShowPromptModal(false);
-                  setUploadStatus({ type: 'success', message: '프롬프트 템플릿이 저장되었습니다.' });
+                  setUploadStatus({ type: 'success', message: 'AI 작성 지침이 저장되었습니다.' });
                   setTimeout(() => setUploadStatus(null), 3000);
                 }}
                 className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary-dark"
