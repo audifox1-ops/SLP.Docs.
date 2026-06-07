@@ -658,3 +658,48 @@ Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - Log in with a Firebase Google or email/password operator account.
 - Confirm a verified bootstrap admin email or `users/{uid}.role` of `admin`/`staff` can open the app and an unapproved account sees the unauthorized gate.
+
+## 2026-06-07 Single Operator No-Login Adjustment
+
+Objective:
+- Remove the app login requirement because the app is intended for one operator.
+- Keep backend hardening that does not depend on user login, such as validation, AI limits, Storage rules, and optional App Check.
+
+Change:
+- `src/App.tsx`
+  - Removed the operator auth gate and role/header sign-out UI.
+  - Firestore listeners attach on app start again.
+  - Student deletion uses direct Firestore deletion again.
+  - AI status preflight no longer requests or sends a Firebase ID token.
+- `src/services/aiService.ts`
+  - AI generation requests no longer require a Firebase ID token.
+- Removed login/auth-only files:
+  - `src/components/OperatorAuthGate.tsx`
+  - `src/services/authService.ts`
+  - `serverless/firebaseAdmin.js`
+  - `serverless/operationsCommon.js`
+  - `api/operations/delete-student.js`
+- `api/ai/generate.js`, `api/ai/status.js`, `server.ts`
+  - Removed server-side Firebase ID-token authorization checks.
+  - Kept server-side AI prompt-size limits, model allowlisting, quota handling, and in-memory rate limiting.
+- `firestore.rules`, `storage.rules`
+  - Converted to no-login single-operator mode with validators and known path restrictions.
+  - Rules now assume the app is protected by hosting-level access control, a private deployment URL, Vercel Deployment Protection, private network access, or equivalent controls.
+- `README.md`, `.env.example`
+  - Removed Google/email login, roles, bootstrap admin, and Firebase token environment guidance.
+  - Documented the no-login security boundary and optional App Check setup.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `node -e "await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`: passed.
+- `PORT=3102 npm run dev`: server started on `http://localhost:3102`; Vite reported the existing HMR WebSocket port was already in use, but the HTTP server started.
+- `curl -i -sS http://localhost:3102/api/health`: returned `200`.
+- `curl -i -sS http://localhost:3102/api/ai/status`: returned `200` without login.
+- `curl -i -sS -X POST http://localhost:3102/api/ai/generate -H 'Content-Type: application/json' --data '{}'`: returned `400 INVALID_PROMPT`, confirming the endpoint is reachable without login and still validates input.
+
+Next if interrupted:
+- Run `git diff --check && npm run lint && npm run build`.
+- Run `node -e "await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`.
+- Start a test server on a free port and confirm `/api/health` and `/api/ai/status` work without login.

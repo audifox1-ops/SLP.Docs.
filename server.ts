@@ -5,8 +5,6 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { checkGeminiStatus, generateGeminiContent } from './serverless/aiCommon.js';
-import { requireStaffFromRequest, toAuthErrorResponse } from './serverless/firebaseAdmin.js';
-import { deleteStudentOperation } from './serverless/operationsCommon.js';
 
 dotenv.config();
 
@@ -36,13 +34,6 @@ async function startServer() {
   });
 
   app.get("/api/ai/status", async (req, res) => {
-    try {
-      await requireStaffFromRequest(req);
-    } catch (error) {
-      const authError = toAuthErrorResponse(error);
-      return res.status(authError.status).json(authError.payload);
-    }
-
     const status = await checkGeminiStatus();
     res.json(status);
   });
@@ -51,29 +42,11 @@ async function startServer() {
     const prompt = req.body?.prompt;
     const model = req.body?.model || 'gemini-2.5-flash-lite';
 
-    let operator;
-    try {
-      operator = await requireStaffFromRequest(req);
-    } catch (error) {
-      const authError = toAuthErrorResponse(error);
-      return res.status(authError.status).json(authError.payload);
-    }
-
-    const result = await generateGeminiContent(prompt, model, operator);
+    const result = await generateGeminiContent(prompt, model);
     if (result.payload?.error?.retryAfterSeconds) {
       res.setHeader('Retry-After', String(result.payload.error.retryAfterSeconds));
     }
     res.status(result.status).json(result.payload);
-  });
-
-  app.post("/api/operations/delete-student", async (req, res) => {
-    try {
-      const payload = await deleteStudentOperation(req, req.body);
-      res.status(200).json(payload);
-    } catch (error) {
-      const operationError = toAuthErrorResponse(error);
-      res.status(operationError.status).json(operationError.payload);
-    }
   });
 
   // Vite middleware for development

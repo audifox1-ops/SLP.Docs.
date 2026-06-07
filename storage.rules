@@ -2,33 +2,8 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function hasClaimRole(role) {
-      return isAuthenticated() && request.auth.token.role == role;
-    }
-
-    function isBootstrapAdmin() {
-      return isAuthenticated() &&
-             request.auth.token.email == "audifox1@gmail.com" &&
-             request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() &&
-             (request.auth.token.admin == true ||
-              hasClaimRole('admin') ||
-              isBootstrapAdmin());
-    }
-
-    function isStaff() {
-      return isAuthenticated() &&
-             (request.auth.token.admin == true ||
-              hasClaimRole('admin') ||
-              hasClaimRole('staff') ||
-              isBootstrapAdmin());
+    function singleOperatorMode() {
+      return true;
     }
 
     function isAllowedUpload() {
@@ -39,21 +14,21 @@ service firebase.storage {
     }
 
     match /students/{studentId}/attachments/{fileName} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isAllowedUpload();
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isAllowedUpload();
+      allow delete: if singleOperatorMode();
     }
 
     match /payment_files/{fileName} {
-      allow read: if isAdmin();
-      allow create, update: if isStaff() && isAllowedUpload();
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isAllowedUpload();
+      allow delete: if singleOperatorMode();
     }
 
     match /document_templates/{allPaths=**} {
-      allow read: if isStaff();
-      allow create, update: if isAdmin() && isAllowedUpload();
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isAllowedUpload();
+      allow delete: if singleOperatorMode();
     }
 
     match /{allPaths=**} {

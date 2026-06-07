@@ -32,22 +32,16 @@ The local server exposes:
 curl http://localhost:3000/api/health
 ```
 
-## Firebase Auth, Roles, And Rules
+## Single Operator Mode And Rules
 
-Production Firestore rules require Firebase Authentication and a staff role for student, payment, document, template, and history data. Anonymous Auth alone is not treated as staff.
+This app is configured for a single operator and does not show an in-app login screen.
 
-Enable one or both operator sign-in providers:
+Important security boundary:
 
-- Firebase Console > Authentication > Sign-in method > Google
-- Firebase Console > Authentication > Sign-in method > Email/Password
-
-Grant operator access with either:
-
-- a Firebase custom claim: `{ "role": "admin" }`, `{ "role": "staff" }`, or `{ "admin": true }`
-- a Firestore profile document at `users/{uid}` with `role: "admin"` or `role: "staff"`
-- the verified bootstrap admin email configured by `VITE_BOOTSTRAP_ADMIN_EMAILS` and `SERVER_BOOTSTRAP_ADMIN_EMAILS`
-
-Use `admin` for destructive tasks such as student deletion, payment-record cleanup, template upload/deletion, and user role management. Use `staff` for normal student, document, message, and schedule operations.
+- Without user login, Firestore and Storage rules cannot distinguish the intended operator from another visitor.
+- Deploy the app behind hosting-level access control, a private deployment URL, Vercel Deployment Protection, a private network, or an equivalent access boundary.
+- App Check can reduce abuse from non-app clients, but it is not a user authorization system.
+- The rules still validate known document shapes and block unknown collections.
 
 Deploy rules:
 
@@ -68,13 +62,10 @@ Production AI calls use Vercel serverless functions:
 
 - `/api/ai/status`
 - `/api/ai/generate`
-- `/api/operations/delete-student`
 
-These routes now require a valid Firebase ID token. AI routes allow `admin` or `staff`; student deletion requires `admin`. Set these Vercel environment variables:
+These routes do not require app login. They keep server-side prompt size limits, model allowlisting, and in-memory rate limiting. Set these Vercel environment variables:
 
 - `GEMINI_API_KEY`
-- `FIREBASE_PROJECT_ID`
-- `SERVER_BOOTSTRAP_ADMIN_EMAILS`
 
 Optional AI limits:
 

@@ -1,12 +1,12 @@
 // ===============================================================
-// Production Data Model
+// Single Operator Data Model
 // IMPORTANT:
-// - These rules require Firebase Authentication.
-// - Staff access is role-based. A signed-in user must have one of:
-//   1) custom claim: { admin: true } or { role: "admin" | "staff" }
-//   2) users/{uid}.role: "admin" | "staff"
-//   3) verified bootstrap admin email: audifox1@gmail.com
-// - Anonymous Auth is not treated as staff by itself.
+// - The app intentionally has no in-app login because it is used by one person.
+// - Firestore Rules cannot identify "one person" without authentication.
+// - Only deploy these no-login rules when the app itself is protected by
+//   hosting-level access control, a private network, or equivalent controls.
+// - App Check can reduce abuse from non-app clients, but it is not a user
+//   authorization system.
 // ===============================================================
 
 rules_version = '2';
@@ -14,46 +14,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Auth Helpers
+    // Access Helper
     // ===============================================================
 
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isBootstrapAdmin() {
-      return isAuthenticated() &&
-             request.auth.token.email == "audifox1@gmail.com" &&
-             request.auth.token.email_verified == true;
-    }
-
-    function hasClaimRole(role) {
-      return isAuthenticated() && request.auth.token.role == role;
-    }
-
-    function hasUserProfileRole(role) {
-      return isAuthenticated() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled != true;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() &&
-             (request.auth.token.admin == true ||
-              hasClaimRole('admin') ||
-              hasUserProfileRole('admin') ||
-              isBootstrapAdmin());
-    }
-
-    function isStaff() {
-      return isAuthenticated() &&
-             (request.auth.token.admin == true ||
-              hasClaimRole('admin') ||
-              hasClaimRole('staff') ||
-              hasUserProfileRole('admin') ||
-              hasUserProfileRole('staff') ||
-              isBootstrapAdmin());
+    function singleOperatorMode() {
+      return true;
     }
 
     // ===============================================================
@@ -99,15 +64,6 @@ service cloud.firestore {
     // ===============================================================
     // Domain Validators
     // ===============================================================
-
-    function isValidUserProfile(data) {
-      return data.role in ['admin', 'staff', 'viewer'] &&
-             optionalString(data, 'displayName', 100) &&
-             optionalString(data, 'email', 200) &&
-             optionalBool(data, 'disabled') &&
-             optionalTimestamp(data, 'createdAt') &&
-             optionalTimestamp(data, 'updatedAt');
-    }
 
     function isValidStudent(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
@@ -222,64 +178,58 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow create, update: if isAdmin() && isValidUserProfile(request.resource.data);
-      allow delete: if isAdmin();
-    }
-
     match /students/{studentId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidStudent(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidStudent(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /payment_records/{recordId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidPaymentRecord(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidPaymentRecord(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /annual_plans/{planId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidAnnualPlan(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidAnnualPlan(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /monthly_journals/{journalId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidMonthlyJournal(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidMonthlyJournal(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /document_history/{historyId} {
-      allow read: if isStaff();
-      allow create: if isStaff() && isValidDocumentHistory(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create: if singleOperatorMode() && isValidDocumentHistory(request.resource.data);
+      allow update, delete: if singleOperatorMode();
     }
 
     match /message_logs/{logId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidMessageLog(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidMessageLog(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /schedule_operation_records/{recordId} {
-      allow read: if isStaff();
-      allow create, update: if isStaff() && isValidScheduleOperation(request.resource.data);
-      allow delete: if isStaff();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidScheduleOperation(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /document_templates/{templateId} {
-      allow read: if isStaff();
-      allow create, update: if isAdmin() && isValidDocumentTemplate(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidDocumentTemplate(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /document_templates/{templateId}/file_chunks/{chunkId} {
-      allow read: if isStaff();
-      allow create, update: if isAdmin() && isValidTemplateChunk(request.resource.data);
-      allow delete: if isAdmin();
+      allow read: if singleOperatorMode();
+      allow create, update: if singleOperatorMode() && isValidTemplateChunk(request.resource.data);
+      allow delete: if singleOperatorMode();
     }
 
     match /test/connection {

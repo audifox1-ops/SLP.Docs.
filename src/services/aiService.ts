@@ -1,5 +1,4 @@
 import { Student, AnnualPlanData, MonthlyJournalData, JournalTone } from "../types";
-import { getCurrentOperatorIdToken } from './authService';
 
 function safeJsonParse(text: string) {
   try {
@@ -90,12 +89,10 @@ async function generateJsonFromServer<T>(prompt: string): Promise<T> {
     );
   }
 
-  const token = await getCurrentOperatorIdToken();
   const response = await fetch('/api/ai/generate', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({ prompt })
   });

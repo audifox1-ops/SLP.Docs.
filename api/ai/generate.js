@@ -1,5 +1,4 @@
 import { generateGeminiContent } from '../../serverless/aiCommon.js';
-import { requireStaffFromRequest, toAuthErrorResponse } from '../../serverless/firebaseAdmin.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,15 +12,7 @@ export default async function handler(req, res) {
   }
 
   const body = parseBody(req.body);
-  let operator;
-  try {
-    operator = await requireStaffFromRequest(req);
-  } catch (error) {
-    const authError = toAuthErrorResponse(error);
-    return res.status(authError.status).json(authError.payload);
-  }
-
-  const result = await generateGeminiContent(body?.prompt, body?.model, operator);
+  const result = await generateGeminiContent(body?.prompt, body?.model);
   if (result.payload?.error?.retryAfterSeconds) {
     res.setHeader('Retry-After', String(result.payload.error.retryAfterSeconds));
   }
