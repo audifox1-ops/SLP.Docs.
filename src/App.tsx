@@ -3657,6 +3657,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-bg-theme selection:bg-primary/10">
+      <a href="#main-content" className="skip-link no-print">본문으로 건너뛰기</a>
       {/* Header - Hidden on Print */}
       <header className="bg-white/80 backdrop-blur-md border-b border-border-theme h-[72px] px-6 md:px-10 flex items-center justify-between no-print sticky top-0 z-40 flex-shrink-0">
         <div className="flex items-center gap-2 font-extrabold text-xl text-primary tracking-tight">
@@ -3666,9 +3667,10 @@ export default function App() {
           <span>SLP.Docs</span>
         </div>
 
-        <nav className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-xl no-print">
+        <nav className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-xl no-print" aria-label="주요 화면">
           <button
             onClick={() => setCurrentView('docs')}
+            aria-current={currentView === 'docs' ? 'page' : undefined}
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
               currentView === 'docs' ? 'bg-white text-primary shadow-sm' : 'text-text-muted hover:text-text-main'
             }`}
@@ -3677,6 +3679,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setCurrentView('students')}
+            aria-current={currentView === 'students' ? 'page' : undefined}
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
               currentView === 'students' ? 'bg-white text-primary shadow-sm' : 'text-text-muted hover:text-text-main'
             }`}
@@ -3685,6 +3688,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setCurrentView('schedule')}
+            aria-current={currentView === 'schedule' ? 'page' : undefined}
             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
               currentView === 'schedule' ? 'bg-white text-primary shadow-sm' : 'text-text-muted hover:text-text-main'
             }`}
@@ -3730,6 +3734,8 @@ export default function App() {
           </button>
           <button
             onClick={() => setPrivacyMode(prev => !prev)}
+            aria-pressed={privacyMode}
+            title={privacyMode ? '개인정보 표시로 전환' : '개인정보 마스킹으로 전환'}
             className={`text-sm font-semibold transition-colors flex items-center gap-2 px-3 py-2 rounded-lg ${
               privacyMode ? 'bg-slate-900 text-white' : 'text-text-muted hover:text-primary hover:bg-primary-light'
             }`}
@@ -3749,11 +3755,14 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col relative overflow-hidden">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col relative overflow-hidden">
         {/* Global Notification Area */}
         <AnimatePresence>
           {showPrintWarning && (
             <motion.div
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
@@ -3778,6 +3787,9 @@ export default function App() {
           )}
           {uploadStatus && (
             <motion.div
+              role={uploadStatus.type === 'error' ? 'alert' : 'status'}
+              aria-live={uploadStatus.type === 'error' ? 'assertive' : 'polite'}
+              aria-atomic="true"
               initial={{ opacity: 0, y: -20, x: '-50%' }}
               animate={{ opacity: 1, y: 0, x: '-50%' }}
               exit={{ opacity: 0, y: -20, x: '-50%' }}
@@ -4067,6 +4079,7 @@ export default function App() {
                       }}
                       role="button"
                       tabIndex={0}
+                      aria-label="결제내역 파일 선택 또는 드래그 업로드"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
                       }}

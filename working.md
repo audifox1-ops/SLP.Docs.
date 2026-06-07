@@ -703,3 +703,47 @@ Next if interrupted:
 - Run `git diff --check && npm run lint && npm run build`.
 - Run `node -e "await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`.
 - Start a test server on a free port and confirm `/api/health` and `/api/ai/status` work without login.
+
+## 2026-06-07 UI/UX Best-Practice Pass
+
+Objective:
+- Research UI/UX best practices from reliable web sources.
+- Apply low-risk improvements to the app.
+- Recommend additional app-development features based on the research and current app shape.
+
+Research:
+- W3C WCAG 2.2: clear keyboard focus, target sizing, and alternatives to dragging.
+- W3C WAI ARIA live regions: status/error messages should be announced programmatically.
+- Nielsen Norman Group heuristics: visibility of system status and recognition rather than recall.
+- GOV.UK task list pattern: long workflows benefit from visible task names and statuses.
+- Firebase App Check and Vercel Deployment Protection: useful no-login single-operator protection layers.
+
+Change:
+- `src/index.css`
+  - Added a global `:focus-visible` style for keyboard users.
+  - Added a skip-link style.
+  - Added `prefers-reduced-motion` handling.
+- `src/App.tsx`
+  - Added a `본문으로 건너뛰기` skip link.
+  - Added `id="main-content"` and `tabIndex={-1}` to the main content landmark.
+  - Added `aria-label` and `aria-current` to the primary navigation.
+  - Added `aria-pressed` and a title to the privacy toggle.
+  - Added `role`, `aria-live`, and `aria-atomic` to print warnings and upload/status notifications.
+  - Added an explicit `aria-label` to the drag-and-drop payment upload target.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `node -e "await import('./serverless/aiCommon.js'); await import('./api/ai/generate.js'); await import('./api/ai/status.js'); console.log('serverless imports ok')"`: passed.
+
+Recommended follow-up features:
+- Add a monthly close task list with status, action, and owner-like grouping for student info, payment records, journals, guardian message, and final submission.
+- Add a command palette for fast repeated actions such as student search, month jump, upload payment file, open message composer, and export document.
+- Add a persistent "next best action" panel that surfaces missing guardian phone, missing monthly journal, payment mismatch, and template issues.
+- Add a lightweight review queue for documents with status labels such as draft, needs review, ready, exported, submitted.
+- Enable Vercel Deployment Protection or a private deployment boundary, and enable App Check enforcement after the no-login deployment is stable.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- Review `src/App.tsx` around the header, main landmark, status notifications, and upload target.
