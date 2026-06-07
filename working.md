@@ -874,3 +874,33 @@ Next: Commit setup, rerun archive validation from committed HEAD, then continue 
 
 <!-- autoresearch-cycle-note:2026-06-08_012528_528588_pid86722_6678ac55 -->
 - AutoResearch cycle `2026-06-08_012528_528588_pid86722_6678ac55` target folder: `/Users/audifox/Downloads/SLP.Docs.-main`; plan: `cycle-plan-report.json`; working.md updated before replan.
+## 2026-06-07T16:29:25Z 2026-06-08-monthly-close-action-routing
+
+Status: running
+Summary: Improve monthly close checklist action routing from static monthly open to first-blocker actions
+Metrics:
+- baseline_action_labels: 1.0
+- candidate_action_labels: 5.0
+Changed:
+- src/App.tsx
+- 12-research/monthly-close-action-routing-2026-06-08.md
+Verifiers:
+- npm run lint passed after helper/table patch
+Next: Run git diff --check and npm run build before adoption
+## 2026-06-07T16:30:06Z 2026-06-08-monthly-close-action-routing
+
+Status: completed
+Summary: Adopted first-blocker action routing and issue chips for the monthly close table
+Decision: adopt
+Metrics:
+- baseline_action_labels: 1.0
+- candidate_action_labels: 5.0
+- vite_chunk_warning_count: 1.0
+Changed:
+- src/App.tsx
+- 12-research/monthly-close-action-routing-2026-06-08.md
+- working.md
+Verifiers:
+- npm run lint passed
+- npm run build passed with existing firebase-vendor chunk warning
+Next: Next cycle can target firebase chunk splitting or safer payment import history

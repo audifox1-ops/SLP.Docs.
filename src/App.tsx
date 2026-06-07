@@ -3209,6 +3209,29 @@ export default function App() {
     })
     .sort((a, b) => b.issues.length - a.issues.length || a.info.name.localeCompare(b.info.name));
   const monthlyCloseReadyCount = monthlyCloseRows.filter(row => row.issues.length === 0).length;
+  type MonthlyCloseRow = (typeof monthlyCloseRows)[number];
+  const getMonthlyCloseAction = (row: MonthlyCloseRow) => {
+    if (!row.hasAnnual) return { label: '연간 열기', tab: 'annual' as const };
+    if (!row.hasMonthly) return { label: '월간 열기', tab: 'monthly' as const };
+    if (!row.paymentReady) return { label: '결제 업로드', tab: null };
+    if (!row.contactReady) return { label: '학생정보', tab: null };
+    return { label: '월간 보기', tab: 'monthly' as const };
+  };
+  const handleMonthlyCloseAction = (row: MonthlyCloseRow) => {
+    const action = getMonthlyCloseAction(row);
+    if (action.label === '결제 업로드') {
+      fileInputRef.current?.click();
+      return;
+    }
+    if (action.label === '학생정보') {
+      setCurrentView('students');
+      handleSidebarStudentSelect(row.info.name);
+      return;
+    }
+    setCurrentView('docs');
+    if (action.tab) setActiveTab(action.tab);
+    handleSidebarStudentSelect(row.info.name);
+  };
   const selectedScheduleLabel = selectedStudent
     ? `${selectedStudent.schedule.day || '요일 미정'} · ${selectedStudent.schedule.time || '시간 미정'}`
     : '학생 선택 필요';
@@ -3968,20 +3991,27 @@ export default function App() {
                                     제출 가능
                                   </span>
                                 ) : (
-                                  <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-2 py-1 font-black text-red-700">
-                                    {row.issues.length}건 확인
-                                  </span>
+                                  <div className="space-y-1">
+                                    <span className="inline-flex rounded-full border border-red-100 bg-red-50 px-2 py-1 font-black text-red-700">
+                                      {row.issues.length}건 확인
+                                    </span>
+                                    <div className="flex max-w-[180px] flex-wrap gap-1">
+                                      {row.issues.map(issue => (
+                                        <span key={`${row.info.name}-${issue}`} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-bold text-slate-600">
+                                          {issue}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
                                 )}
                               </td>
                               <td className="px-4 py-3 text-right">
                                 <button
-                                  onClick={() => {
-                                    setActiveTab('monthly');
-                                    handleSidebarStudentSelect(row.info.name);
-                                  }}
+                                  onClick={() => handleMonthlyCloseAction(row)}
+                                  aria-label={`${getStudentDisplayName(row.info.name)} ${getMonthlyCloseAction(row).label}`}
                                   className="rounded-lg bg-primary px-3 py-2 font-black text-white hover:bg-primary-dark"
                                 >
-                                  월간 열기
+                                  {getMonthlyCloseAction(row).label}
                                 </button>
                               </td>
                             </tr>
