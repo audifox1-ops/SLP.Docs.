@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, Zap, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Shield, Layers3, ArchiveRestore, Eye, EyeOff, Users, CreditCard, MessageSquare } from 'lucide-react';
+import { Search, Printer, Download, FileText, Calendar, Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Sparkles, ShieldCheck, ArrowRight, Trash2, Save, Pencil, Check, History, RotateCcw, ClipboardCheck, Settings, Layers3, ArchiveRestore, Eye, EyeOff, Users, CreditCard, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -18,7 +18,7 @@ import { StudentManagement } from './components/StudentManagement';
 import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storageService';
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
-import { normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
+import { getScheduleDayNumber, normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
 import { db, OperationType, handleFirestoreError } from './firebase';
 import {
   collection,
@@ -82,6 +82,59 @@ interface BatchMonthResult {
 interface QualityIssue {
   level: 'error' | 'warning';
   label: string;
+}
+
+type MessageTemplateKey = 'monthly' | 'payment' | 'document' | 'schedule';
+
+interface MessageLogEntry {
+  id: string;
+  studentName: string;
+  year: number;
+  month: number;
+  templateKey: MessageTemplateKey;
+  targetPhone: string;
+  message: string;
+  action: 'copied' | 'sms-opened';
+  createdAtMs: number;
+}
+
+interface PaymentImportPreviewRow {
+  studentName: string;
+  transactionDate: string;
+  transactionTime: string;
+  amount: string;
+  treatmentArea: string;
+  action: 'new' | 'update' | 'duplicate-in-file' | 'skipped';
+  reason?: string;
+}
+
+interface PaymentImportPreview {
+  totalRows: number;
+  validRows: number;
+  newCount: number;
+  updateCount: number;
+  duplicateInFileCount: number;
+  skippedCount: number;
+  canceledCount: number;
+  unknownStudentNames: string[];
+  byStudent: { name: string; count: number }[];
+  rows: PaymentImportPreviewRow[];
+}
+
+interface PendingPaymentImport {
+  fileName: string;
+  file?: File;
+  records: RawRecord[];
+  canceledCount: number;
+  preview: PaymentImportPreview;
+}
+
+interface LastPaymentImport {
+  id: string;
+  fileName: string;
+  createdAtMs: number;
+  createdDocIds: string[];
+  overwrittenRecords: PaymentRecord[];
 }
 
 type DocumentStatuses = Record<string, { annual: boolean; monthly: Record<string, boolean> }>;
@@ -196,6 +249,10 @@ type EditableStudentInfoPayload = Pick<
   | 'disabilityType'
   | 'treatmentArea'
   | 'therapistName'
+  | 'guardianName'
+  | 'guardianPhone'
+  | 'guardianRelation'
+  | 'messageConsent'
   | 'scheduleDay'
   | 'scheduleTime'
   | 'scheduleFrequency'
@@ -209,6 +266,10 @@ const buildEditableStudentInfoPayload = (info: StudentInfo): EditableStudentInfo
   disabilityType: String(info.disabilityType || '').trim(),
   treatmentArea: String(info.treatmentArea || '').trim(),
   therapistName: String(info.therapistName || '').trim(),
+  guardianName: String(info.guardianName || '').trim(),
+  guardianPhone: String(info.guardianPhone || '').trim(),
+  guardianRelation: String(info.guardianRelation || '').trim(),
+  messageConsent: Boolean(info.messageConsent),
   scheduleDay: normalizeScheduleDay(info.scheduleDay),
   scheduleTime: normalizeScheduleTime(info.scheduleTime),
   scheduleFrequency: normalizeScheduleFrequency(info.scheduleFrequency),
@@ -232,6 +293,10 @@ const applyStudentInfoToSelectedStudent = (student: Student, info: StudentInfo):
   disabilityType: info.disabilityType,
   treatmentArea: info.treatmentArea,
   therapistName: info.therapistName,
+  guardianName: info.guardianName,
+  guardianPhone: info.guardianPhone,
+  guardianRelation: info.guardianRelation,
+  messageConsent: Boolean(info.messageConsent),
   schedule: {
     day: info.scheduleDay || '정보 없음',
     time: info.scheduleTime || '정보 없음',
@@ -292,6 +357,16 @@ export default function App() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  const [messageTemplateKey, setMessageTemplateKey] = useState<MessageTemplateKey>('monthly');
+  const [messageDraftText, setMessageDraftText] = useState('');
+  const [messageLogs, setMessageLogs] = useState<MessageLogEntry[]>(() => {
+    try {
+      const stored = localStorage.getItem('message_logs');
+      return stored ? JSON.parse(stored) as MessageLogEntry[] : [];
+    } catch {
+      return [];
+    }
+  });
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [activeTemplateKind, setActiveTemplateKind] = useState<DocumentTemplateKind>('combined_journal');
   const [combinedTemplateSample, setCombinedTemplateSample] = useState<DocumentTemplateSample | null>(null);
@@ -459,6 +534,10 @@ export default function App() {
             prev.disabilityType === updatedInfo.disabilityType &&
             prev.treatmentArea === updatedInfo.treatmentArea &&
             prev.therapistName === updatedInfo.therapistName &&
+            prev.guardianName === updatedInfo.guardianName &&
+            prev.guardianPhone === updatedInfo.guardianPhone &&
+            prev.guardianRelation === updatedInfo.guardianRelation &&
+            prev.messageConsent === Boolean(updatedInfo.messageConsent) &&
             prev.schedule.day === (updatedInfo.scheduleDay || '정보 없음') &&
             prev.schedule.time === (updatedInfo.scheduleTime || '정보 없음') &&
             prev.schedule.frequency === (updatedInfo.scheduleFrequency || '1') &&
@@ -501,6 +580,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('privacy_mode', String(privacyMode));
   }, [privacyMode]);
+
+  useEffect(() => {
+    localStorage.setItem('message_logs', JSON.stringify(messageLogs.slice(0, 80)));
+  }, [messageLogs]);
 
   const refreshDraftItems = () => {
     const drafts: DraftItem[] = [];
@@ -667,6 +750,8 @@ export default function App() {
   const [rawRecords, setRawRecords] = useState<RawRecord[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [pendingPaymentImport, setPendingPaymentImport] = useState<PendingPaymentImport | null>(null);
+  const [lastPaymentImport, setLastPaymentImport] = useState<LastPaymentImport | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleResetAllData = async () => {
@@ -716,7 +801,7 @@ export default function App() {
     processFile(file);
   };
 
-    const processFile = (file: File) => {
+  const processFile = (file: File) => {
       const extension = file.name.split('.').pop()?.toLowerCase();
 
       if (file.size > PAYMENT_UPLOAD_MAX_BYTES) {
@@ -828,13 +913,10 @@ export default function App() {
             }
 
             try {
-              // Firebase Save with Duplicate Check
-              await saveRecordsToFirebase(processed);
-              setRawRecords(processed);
-              setIsDataLoaded(true);
+              stagePaymentImport(processed, 0, file);
             } catch (saveError) {
-              console.error('CSV 저장 실패:', saveError);
-              setUploadStatus({ type: 'error', message: '데이터 저장 중 오류가 발생했습니다.' });
+              console.error('CSV 미리보기 생성 실패:', saveError);
+              setUploadStatus({ type: 'error', message: '업로드 미리보기 생성 중 오류가 발생했습니다.' });
               setTimeout(() => setUploadStatus(null), 5000);
             }
           },
@@ -882,19 +964,7 @@ export default function App() {
               return;
             }
 
-            // Firebase Storage에 원본 파일 저장
-            try {
-              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-              const storagePath = `payment_files/${timestamp}_${file.name}`;
-              await uploadBlob(new Blob([data], { type: file.type }), storagePath);
-            } catch (storageErr) {
-              console.warn('Storage 저장 실패(무시):', storageErr);
-            }
-
-            // Firebase Firestore에 거래 데이터 저장
-            await saveRecordsToFirebase(processed, canceledCount);
-            setRawRecords(processed);
-            setIsDataLoaded(true);
+            stagePaymentImport(processed, canceledCount, file);
           } catch (error) {
             setUploadStatus({ type: 'error', message: '엑셀 처리 또는 데이터 저장 중 오류가 발생했습니다.' });
             setTimeout(() => setUploadStatus(null), 5000);
@@ -907,26 +977,154 @@ export default function App() {
       }
     };
 
-  const saveRecordsToFirebase = async (records: RawRecord[], canceledCount: number = 0) => {
+  const getRawPaymentStudentName = (record: RawRecord) => String(
+    record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || ''
+  ).trim();
+
+  const getRawPaymentDate = (record: RawRecord) => String(
+    record['거래일자'] || record['거래 일자'] || record['날짜'] || record['결제일'] || record['결제 일자'] || record['일자'] || record['Date'] || record['거래일'] || ''
+  ).trim();
+
+  const getRawPaymentTime = (record: RawRecord) => String(record['거래시간'] || record['시간'] || record['결제시간'] || '').trim();
+
+  const getRawPaymentAmount = (record: RawRecord) => record['금액'] || 0;
+
+  const getRawPaymentArea = (record: RawRecord) => String(
+    record['지원영역'] || record['지원 영역'] || record['치료영역'] || record['영역'] || record['서비스'] || '언어치료'
+  ).trim();
+
+  const getRawPaymentCancelValue = (record: RawRecord) => String(record['취소여부'] || record['취소'] || '').trim();
+
+  const normalizePaymentTime = (time: string) => String(time || '').trim().substring(0, 5);
+
+  const getPaymentDateKey = (dateValue: string) => {
+    const normalized = normalizeDateStr(String(dateValue));
+    const match = normalized.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
+    if (match) {
+      const year = match[1].length === 2 ? `20${match[1]}` : match[1];
+      return `${year}${match[2].padStart(2, '0')}${match[3].padStart(2, '0')}`;
+    }
+    return normalized.replace(/[^0-9]/g, '');
+  };
+
+  const getPaymentDocId = (name: string, date: string, time: string) => {
+    const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
+    const safeDate = getPaymentDateKey(date);
+    const safeTime = time ? time.replace(/[^0-9]/g, '') : 'notime';
+    return `pay_${safeName}_${safeDate}_${safeTime}`;
+  };
+
+  const findExistingPaymentRecord = (name: string, date: string, time: string) => {
+    const dateKey = getPaymentDateKey(date);
+    const timeStr = normalizePaymentTime(time);
+    return allPaymentRecords.find(r =>
+      r.studentName === name &&
+      getPaymentDateKey(String(r.transactionDate)) === dateKey &&
+      normalizePaymentTime(r.transactionTime || '') === timeStr
+    );
+  };
+
+  const buildPaymentImportPreview = (records: RawRecord[], canceledCount: number): PaymentImportPreview => {
+    let validRows = 0;
+    let newCount = 0;
+    let updateCount = 0;
+    let duplicateInFileCount = 0;
+    let skippedCount = 0;
+    const seenDocIds = new Set<string>();
+    const unknownStudentNames = new Set<string>();
+    const byStudentMap = new Map<string, number>();
+    const rows: PaymentImportPreviewRow[] = [];
+
+    records.forEach(record => {
+      const name = getRawPaymentStudentName(record);
+      const date = getRawPaymentDate(record);
+      const time = normalizePaymentTime(getRawPaymentTime(record));
+      const amount = String(getRawPaymentAmount(record) || '');
+      const treatmentArea = getRawPaymentArea(record);
+      const cancelVal = getRawPaymentCancelValue(record);
+
+      const pushRow = (row: PaymentImportPreviewRow) => {
+        if (rows.length < 30) rows.push(row);
+      };
+
+      if (cancelVal === 'Y' || cancelVal === 'y') {
+        skippedCount++;
+        pushRow({ studentName: name || '-', transactionDate: date || '-', transactionTime: time, amount, treatmentArea, action: 'skipped', reason: '취소 거래' });
+        return;
+      }
+
+      if (!name || !date) {
+        skippedCount++;
+        pushRow({ studentName: name || '-', transactionDate: date || '-', transactionTime: time, amount, treatmentArea, action: 'skipped', reason: '학생명 또는 거래일자 누락' });
+        return;
+      }
+
+      const docId = getPaymentDocId(name, date, time);
+      byStudentMap.set(name, (byStudentMap.get(name) || 0) + 1);
+      if (!studentInfoByName.has(name)) unknownStudentNames.add(name);
+
+      if (seenDocIds.has(docId)) {
+        duplicateInFileCount++;
+        pushRow({ studentName: name, transactionDate: date, transactionTime: time, amount, treatmentArea, action: 'duplicate-in-file', reason: '파일 내 중복' });
+        return;
+      }
+      seenDocIds.add(docId);
+
+      const existingRecord = findExistingPaymentRecord(name, date, time);
+      validRows++;
+      if (existingRecord) {
+        updateCount++;
+        pushRow({ studentName: name, transactionDate: date, transactionTime: time, amount, treatmentArea, action: 'update' });
+      } else {
+        newCount++;
+        pushRow({ studentName: name, transactionDate: date, transactionTime: time, amount, treatmentArea, action: 'new' });
+      }
+    });
+
+    return {
+      totalRows: records.length,
+      validRows,
+      newCount,
+      updateCount,
+      duplicateInFileCount,
+      skippedCount,
+      canceledCount,
+      unknownStudentNames: Array.from(unknownStudentNames).sort(),
+      byStudent: Array.from(byStudentMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      rows
+    };
+  };
+
+  const stagePaymentImport = (records: RawRecord[], canceledCount: number, file?: File) => {
+    const preview = buildPaymentImportPreview(records, canceledCount);
+    setPendingPaymentImport({
+      fileName: file?.name || '결제내역',
+      file,
+      records,
+      canceledCount,
+      preview
+    });
+    setUploadStatus({
+      type: 'success',
+      message: `업로드 미리보기를 준비했습니다. 신규 ${preview.newCount}건, 업데이트 ${preview.updateCount}건을 확인 후 저장해 주세요.`
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const saveRecordsToFirebase = async (records: RawRecord[], canceledCount: number = 0, fileName: string = '결제내역') => {
     setIsLoading(true);
     let addedCount = 0;
     let duplicateCount = 0;
+    const createdDocIds: string[] = [];
+    const overwrittenRecords: PaymentRecord[] = [];
 
     try {
       const BATCH_LIMIT = 450;
       const seenDocIds = new Set<string>();
       let batch = writeBatch(db);
       let pendingWrites = 0;
-
-      const getDateKey = (dateValue: string) => {
-        const normalized = normalizeDateStr(String(dateValue));
-        const match = normalized.match(/(\d{2,4})[-./\s년]+(\d{1,2})[-./\s월]+(\d{1,2})/);
-        if (match) {
-          const year = match[1].length === 2 ? `20${match[1]}` : match[1];
-          return `${year}${match[2].padStart(2, '0')}${match[3].padStart(2, '0')}`;
-        }
-        return normalized.replace(/[^0-9]/g, '');
-      };
 
       const commitPending = async () => {
         if (pendingWrites === 0) return;
@@ -936,28 +1134,20 @@ export default function App() {
       };
 
       for (const record of records) {
-        const name = String(record['학생이름'] || record['학생 이름'] || record['이름'] || record['성명'] || record['성함'] || record['대상자'] || '').trim();
-        const date = String(record['거래일자'] || record['거래 일자'] || record['날짜'] || record['결제일'] || record['결제 일자'] || record['일자'] || record['Date'] || record['거래일'] || '').trim();
-        const time = String(record['거래시간'] || record['시간'] || record['결제시간'] || '').trim();
-        const amount = record['금액'] || 0;
-        const area = String(record['지원영역'] || record['지원 영역'] || record['치료영역'] || record['영역'] || record['서비스'] || '언어치료').trim();
-        const cancelVal = String(record['취소여부'] || record['취소'] || '').trim();
+        const name = getRawPaymentStudentName(record);
+        const date = getRawPaymentDate(record);
+        const time = getRawPaymentTime(record);
+        const amount = getRawPaymentAmount(record);
+        const area = getRawPaymentArea(record);
+        const cancelVal = getRawPaymentCancelValue(record);
 
         // 취소 거래 스킵
         if (cancelVal === 'Y' || cancelVal === 'y') continue;
         if (!name || !date) continue;
 
-        const timeStr = time ? time.substring(0, 5) : '';
-        // 고유 ID 생성 (이름_날짜_시간) - Firestore ID 규칙에 맞게 특수문자 제거
-        const safeName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
-        const safeDate = getDateKey(date);
-        const safeTime = timeStr ? timeStr.replace(/[^0-9]/g, '') : 'notime';
-        const existingRecord = allPaymentRecords.find(r =>
-          r.studentName === name &&
-          getDateKey(String(r.transactionDate)) === safeDate &&
-          (r.transactionTime || '') === timeStr
-        );
-        const docId = existingRecord?.id || `pay_${safeName}_${safeDate}_${safeTime}`;
+        const timeStr = normalizePaymentTime(time);
+        const existingRecord = findExistingPaymentRecord(name, date, timeStr);
+        const docId = existingRecord?.id || getPaymentDocId(name, date, timeStr);
 
         if (seenDocIds.has(docId)) {
           duplicateCount++;
@@ -969,8 +1159,10 @@ export default function App() {
 
         if (isDuplicate) {
           duplicateCount++; // 중복(덮어쓰기) 건수로 카운트
+          if (existingRecord) overwrittenRecords.push(existingRecord);
         } else {
           addedCount++;
+          createdDocIds.push(docId);
         }
 
         const newRecordRef = doc(db, 'payment_records', docId); // 직접 지정된 doc ID 사용
@@ -997,6 +1189,14 @@ export default function App() {
 
       await commitPending();
 
+      setLastPaymentImport({
+        id: `import_${Date.now()}`,
+        fileName,
+        createdAtMs: Date.now(),
+        createdDocIds,
+        overwrittenRecords
+      });
+
       const cancelMsg = canceledCount > 0 ? ` (취소건 ${canceledCount}건 제외)` : '';
       setUploadStatus({
         type: 'success',
@@ -1004,6 +1204,92 @@ export default function App() {
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'payment_records');
+    } finally {
+      setIsLoading(false);
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
+  const confirmPendingPaymentImport = async () => {
+    if (!pendingPaymentImport) return;
+
+    try {
+      if (pendingPaymentImport.file) {
+        try {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const storagePath = `payment_files/${timestamp}_${pendingPaymentImport.file.name}`;
+          await uploadBlob(pendingPaymentImport.file, storagePath);
+        } catch (storageErr) {
+          console.warn('Storage 저장 실패(무시):', storageErr);
+        }
+      }
+
+      await saveRecordsToFirebase(
+        pendingPaymentImport.records,
+        pendingPaymentImport.canceledCount,
+        pendingPaymentImport.fileName
+      );
+      setRawRecords(pendingPaymentImport.records);
+      setIsDataLoaded(true);
+      setPendingPaymentImport(null);
+    } catch (error) {
+      console.error('결제내역 확정 저장 실패:', error);
+      setUploadStatus({ type: 'error', message: '결제내역 확정 저장 중 오류가 발생했습니다.' });
+      setTimeout(() => setUploadStatus(null), 5000);
+    }
+  };
+
+  const undoLastPaymentImport = async () => {
+    if (!lastPaymentImport) {
+      setUploadStatus({ type: 'error', message: '되돌릴 최근 업로드가 없습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+      return;
+    }
+
+    const totalTargets = lastPaymentImport.createdDocIds.length + lastPaymentImport.overwrittenRecords.length;
+    if (totalTargets === 0) {
+      setUploadStatus({ type: 'error', message: '최근 업로드에 되돌릴 저장 항목이 없습니다.' });
+      setTimeout(() => setUploadStatus(null), 3000);
+      return;
+    }
+
+    if (!window.confirm(`최근 업로드 '${lastPaymentImport.fileName}'의 저장 항목 ${totalTargets}건을 되돌리시겠습니까?`)) return;
+
+    setIsLoading(true);
+    try {
+      const BATCH_LIMIT = 450;
+      let batch = writeBatch(db);
+      let pendingWrites = 0;
+
+      const commitPending = async () => {
+        if (pendingWrites === 0) return;
+        await batch.commit();
+        batch = writeBatch(db);
+        pendingWrites = 0;
+      };
+
+      for (const docId of lastPaymentImport.createdDocIds) {
+        batch.delete(doc(db, 'payment_records', docId));
+        pendingWrites++;
+        if (pendingWrites >= BATCH_LIMIT) await commitPending();
+      }
+
+      for (const record of lastPaymentImport.overwrittenRecords) {
+        if (!record.id) continue;
+        const previousData = Object.fromEntries(
+          Object.entries(record).filter(([key, value]) => key !== 'id' && value !== undefined)
+        );
+        batch.set(doc(db, 'payment_records', record.id), previousData);
+        pendingWrites++;
+        if (pendingWrites >= BATCH_LIMIT) await commitPending();
+      }
+
+      await commitPending();
+      setLastPaymentImport(null);
+      setUploadStatus({ type: 'success', message: `최근 업로드 ${totalTargets}건을 되돌렸습니다.` });
+    } catch (error) {
+      console.error('최근 업로드 되돌리기 실패:', error);
+      setUploadStatus({ type: 'error', message: '최근 업로드 되돌리기 중 오류가 발생했습니다.' });
     } finally {
       setIsLoading(false);
       setTimeout(() => setUploadStatus(null), 5000);
@@ -1074,6 +1360,10 @@ export default function App() {
       },
       startDate: `${selectedYear}.03`,
       therapistName: info.therapistName,
+      guardianName: info.guardianName,
+      guardianPhone: info.guardianPhone,
+      guardianRelation: info.guardianRelation,
+      messageConsent: Boolean(info.messageConsent),
       paymentDates: paymentDates,
       monthlyAreas: monthlyAreas,
       referenceData: info.referenceData,
@@ -1546,6 +1836,23 @@ export default function App() {
     if (!value) return value;
     if (value.length <= 1) return '*';
     return `${value[0]}${'*'.repeat(Math.min(value.length - 1, 4))}`;
+  };
+
+  const maskPhoneValue = (value: string) => {
+    if (!value) return value;
+    const digitCount = value.replace(/\D/g, '').length;
+    if (digitCount <= 4) return '*'.repeat(value.length);
+    let seenDigits = 0;
+    return value
+      .split('')
+      .reverse()
+      .map(char => {
+        if (!/\d/.test(char)) return char;
+        seenDigits++;
+        return seenDigits <= 4 ? char : '*';
+      })
+      .reverse()
+      .join('');
   };
 
   const buildDisplayStudent = (student: Student): Student => {
@@ -2778,6 +3085,20 @@ export default function App() {
     return 'bg-amber-50 text-amber-700 border-amber-200';
   };
 
+  const getPaymentPreviewActionLabel = (action: PaymentImportPreviewRow['action']) => {
+    if (action === 'new') return '신규';
+    if (action === 'update') return '업데이트';
+    if (action === 'duplicate-in-file') return '파일 중복';
+    return '제외';
+  };
+
+  const getPaymentPreviewActionClass = (action: PaymentImportPreviewRow['action']) => {
+    if (action === 'new') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+    if (action === 'update') return 'bg-blue-50 text-blue-700 border-blue-100';
+    if (action === 'duplicate-in-file') return 'bg-amber-50 text-amber-700 border-amber-100';
+    return 'bg-slate-100 text-slate-500 border-slate-200';
+  };
+
   const qualityIssues = selectedStudent ? getQualityIssues() : [];
   const displayStudent = selectedStudent ? buildDisplayStudent(selectedStudent) : null;
   const selectedDocStatus = selectedStudent ? documentStatuses[selectedStudent.name] : null;
@@ -2797,26 +3118,151 @@ export default function App() {
   const annualSavedCount = documentStatusList.filter(status => status.annual).length;
   const selectedMonthSavedCount = documentStatusList.filter(status => status.monthly?.[`${selectedYear}_${selectedMonth}`]).length;
   const selectedStudentPaymentCount = selectedStudent ? getMonthlyPaymentRecords(selectedStudent.name).length : 0;
+  const getExpectedMonthlySessionCount = (info?: StudentInfo | null) => {
+    if (!info?.scheduleDay) return 0;
+    const dayNumber = getScheduleDayNumber(info.scheduleDay);
+    if (dayNumber < 0) return 0;
+    let count = 0;
+    const daysInSelectedMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    for (let day = 1; day <= daysInSelectedMonth; day++) {
+      if (new Date(selectedYear, selectedMonth - 1, day).getDay() === dayNumber) {
+        count++;
+      }
+    }
+    const frequency = Math.max(1, Number(normalizeScheduleFrequency(info.scheduleFrequency)) || 1);
+    return count * frequency;
+  };
+  const selectedExpectedSessionCount = getExpectedMonthlySessionCount(selectedStudentInfo);
+  const selectedPaymentStatus =
+    !selectedStudent
+      ? { label: '학생 선택 필요', tone: 'bg-slate-100 text-slate-500 border-slate-200' }
+      : selectedExpectedSessionCount === 0
+        ? { label: '일정 확인 필요', tone: 'bg-amber-50 text-amber-700 border-amber-100' }
+        : selectedStudentPaymentCount >= selectedExpectedSessionCount
+          ? { label: '결제 완료', tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+          : selectedStudentPaymentCount === 0
+            ? { label: '미납', tone: 'bg-red-50 text-red-700 border-red-100' }
+            : { label: '부분 납부', tone: 'bg-amber-50 text-amber-700 border-amber-100' };
+  const paymentAttentionStudents = studentInfos.filter(info => {
+    const expected = getExpectedMonthlySessionCount(info);
+    const actual = getGenericMonthlyPaymentRecords(info.name, selectedYear, selectedMonth).length;
+    return expected > 0 && actual < expected;
+  });
+  const contactAttentionStudents = studentInfos.filter(info => !info.guardianPhone || !info.messageConsent);
   const selectedScheduleLabel = selectedStudent
     ? `${selectedStudent.schedule.day || '요일 미정'} · ${selectedStudent.schedule.time || '시간 미정'}`
     : '학생 선택 필요';
-  const selectedMessageText = selectedStudent
-    ? [
-        `안녕하세요. ${getStudentDisplayName(selectedStudent.name)} 학생 ${selectedYear}년 ${selectedMonth}월 수업 안내드립니다.`,
-        `수업 일정: ${selectedScheduleLabel}`,
-        `결제 기록: ${selectedStudentPaymentCount}건`,
-        `작성 문서: 연간계획서 ${selectedAnnualSaved ? '저장됨' : '미저장'}, ${selectedMonth}월 일지 ${selectedMonthlySaved ? '저장됨' : '미저장'}`,
-        '확인 부탁드립니다.'
-      ].join('\n')
-    : [
+  const selectedGuardianName = selectedStudentInfo?.guardianName || selectedStudent?.guardianName || '';
+  const selectedGuardianRelation = selectedStudentInfo?.guardianRelation || selectedStudent?.guardianRelation || '';
+  const selectedGuardianPhone = selectedStudentInfo?.guardianPhone || selectedStudent?.guardianPhone || '';
+  const selectedGuardianDisplayPhone = privacyMode ? maskPhoneValue(selectedGuardianPhone) : selectedGuardianPhone;
+  const selectedMessageConsent = Boolean(selectedStudentInfo?.messageConsent ?? selectedStudent?.messageConsent);
+  const selectedMessageLogs = selectedStudent
+    ? messageLogs.filter(log => log.studentName === selectedStudent.name).slice(0, 5)
+    : messageLogs.slice(0, 5);
+  const messageTemplateLabels: Record<MessageTemplateKey, string> = {
+    monthly: '월 안내',
+    payment: '결제 확인',
+    document: '서류 상태',
+    schedule: '수업 일정'
+  };
+  const buildMessageText = (templateKey: MessageTemplateKey) => {
+    const studentName = selectedStudent ? getStudentDisplayName(selectedStudent.name) : '학생';
+    const guardianLabel = privacyMode
+      ? '보호자님'
+      : selectedGuardianName
+        ? `${selectedGuardianName}${selectedGuardianRelation ? ` ${selectedGuardianRelation}` : ''}님`
+        : '보호자님';
+
+    if (!selectedStudent) {
+      return [
         `${selectedYear}년 ${selectedMonth}월 수업 및 결제 안내드립니다.`,
         '학생을 선택하면 수업 일정, 결제 기록, 문서 작성 상태가 자동으로 포함됩니다.',
         '확인 부탁드립니다.'
       ].join('\n');
+    }
+
+    if (templateKey === 'payment') {
+      const expectedLabel = selectedExpectedSessionCount > 0 ? `${selectedExpectedSessionCount}회 예정` : '예정 횟수 확인 필요';
+      const paymentLine = selectedStudentPaymentCount >= selectedExpectedSessionCount && selectedExpectedSessionCount > 0
+        ? `${selectedMonth}월 수업료 결제 기록이 ${selectedStudentPaymentCount}건 확인되었습니다.`
+        : `${selectedMonth}월 수업료 결제 기록은 ${selectedStudentPaymentCount}건이며, ${expectedLabel} 기준 확인이 필요합니다.`;
+      return [
+        `안녕하세요. ${guardianLabel}`,
+        `${studentName} 학생 ${selectedYear}년 ${selectedMonth}월 결제 확인 안내드립니다.`,
+        paymentLine,
+        `현재 상태: ${selectedPaymentStatus.label}`,
+        '확인 부탁드립니다.'
+      ].join('\n');
+    }
+
+    if (templateKey === 'document') {
+      return [
+        `안녕하세요. ${guardianLabel}`,
+        `${studentName} 학생 ${selectedYear}년 ${selectedMonth}월 치료지원 서류 작성 상태 안내드립니다.`,
+        `연간계획서: ${selectedAnnualSaved ? '저장 완료' : '작성/저장 필요'}`,
+        `${selectedMonth}월 월간일지: ${selectedMonthlySaved ? '저장 완료' : '작성/저장 필요'}`,
+        '필요 서류 확인 후 안내드리겠습니다.'
+      ].join('\n');
+    }
+
+    if (templateKey === 'schedule') {
+      return [
+        `안녕하세요. ${guardianLabel}`,
+        `${studentName} 학생 수업 일정 안내드립니다.`,
+        `수업 일정: ${selectedScheduleLabel}`,
+        `치료 영역: ${selectedStudent.treatmentArea || '확인 필요'}`,
+        '일정 변경이 필요한 경우 회신 부탁드립니다.'
+      ].join('\n');
+    }
+
+    return [
+      `안녕하세요. ${guardianLabel}`,
+      `${studentName} 학생 ${selectedYear}년 ${selectedMonth}월 수업 안내드립니다.`,
+      `수업 일정: ${selectedScheduleLabel}`,
+      `결제 기록: ${selectedStudentPaymentCount}건${selectedExpectedSessionCount ? ` / 예상 ${selectedExpectedSessionCount}회` : ''}`,
+      `작성 문서: 연간계획서 ${selectedAnnualSaved ? '저장됨' : '미저장'}, ${selectedMonth}월 일지 ${selectedMonthlySaved ? '저장됨' : '미저장'}`,
+      '확인 부탁드립니다.'
+    ].join('\n');
+  };
+
+  useEffect(() => {
+    setMessageDraftText(buildMessageText(messageTemplateKey));
+  }, [
+    messageTemplateKey,
+    selectedStudent?.name,
+    selectedGuardianName,
+    selectedGuardianRelation,
+    selectedYear,
+    selectedMonth,
+    selectedScheduleLabel,
+    selectedStudentPaymentCount,
+    selectedExpectedSessionCount,
+    selectedAnnualSaved,
+    selectedMonthlySaved,
+    selectedPaymentStatus.label,
+    privacyMode
+  ]);
+
+  const addMessageLog = (action: MessageLogEntry['action']) => {
+    const entry: MessageLogEntry = {
+      id: `msg_${Date.now()}`,
+      studentName: selectedStudent?.name || '미선택',
+      year: selectedYear,
+      month: selectedMonth,
+      templateKey: messageTemplateKey,
+      targetPhone: selectedGuardianPhone,
+      message: messageDraftText,
+      action,
+      createdAtMs: Date.now()
+    };
+    setMessageLogs(prev => [entry, ...prev].slice(0, 80));
+  };
 
   const copySelectedMessage = async () => {
     try {
-      await navigator.clipboard.writeText(selectedMessageText);
+      await navigator.clipboard.writeText(messageDraftText);
+      addMessageLog('copied');
       setUploadStatus({ type: 'success', message: '메시지 내용을 클립보드에 복사했습니다.' });
     } catch {
       setUploadStatus({ type: 'error', message: '클립보드 복사 권한이 없어 메시지를 직접 선택해 복사해 주세요.' });
@@ -2825,7 +3271,9 @@ export default function App() {
   };
 
   const openSmsDraft = () => {
-    window.location.href = `sms:?body=${encodeURIComponent(selectedMessageText)}`;
+    addMessageLog('sms-opened');
+    const phone = selectedGuardianPhone.replace(/[^0-9+]/g, '');
+    window.location.href = `sms:${phone}?body=${encodeURIComponent(messageDraftText)}`;
   };
 
   const handleSidebarStudentSelect = (name: string) => {
@@ -2845,6 +3293,7 @@ export default function App() {
     setRawRecords([]);
     setSelectedStudent(null);
     setUploadStatus(null);
+    setPendingPaymentImport(null);
     setSearchTerm('');
     setCurrentView('docs');
   };
@@ -2891,12 +3340,15 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5">
               <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedAnnualSaved ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-white text-slate-500 border-slate-200'}`}>
                 연간
               </span>
               <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedMonthlySaved ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-white text-slate-500 border-slate-200'}`}>
                 {selectedMonth}월
+              </span>
+              <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedPaymentStatus.tone}`}>
+                결제
               </span>
               <span className={`rounded-lg border px-2 py-1 text-center text-[10px] font-black ${selectedStudentDraftCount > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-white text-slate-500 border-slate-200'}`}>
                 임시 {selectedStudentDraftCount}
@@ -2959,6 +3411,10 @@ export default function App() {
               const hasAnnual = Boolean(status?.annual);
               const hasMonthly = Boolean(status?.monthly?.[`${selectedYear}_${selectedMonth}`]);
               const hasDraft = draftItems.some(item => item.studentName === name);
+              const info = studentInfoByName.get(name);
+              const expectedPaymentCount = getExpectedMonthlySessionCount(info);
+              const actualPaymentCount = getGenericMonthlyPaymentRecords(name, selectedYear, selectedMonth).length;
+              const needsPaymentCheck = expectedPaymentCount > 0 && actualPaymentCount < expectedPaymentCount;
 
               return (
                 <motion.div
@@ -2991,6 +3447,7 @@ export default function App() {
                     <div className="mt-1 flex flex-wrap gap-1">
                       <span className={`rounded border px-1.5 py-0.5 text-[9px] font-black ${hasAnnual ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-white text-slate-400 border-slate-100'}`}>연간</span>
                       <span className={`rounded border px-1.5 py-0.5 text-[9px] font-black ${hasMonthly ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-white text-slate-400 border-slate-100'}`}>{selectedMonth}월</span>
+                      {needsPaymentCheck && <span className="rounded border border-red-100 bg-red-50 px-1.5 py-0.5 text-[9px] font-black text-red-700">결제</span>}
                       {hasDraft && <span className="rounded border border-amber-100 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700">임시</span>}
                     </div>
                   </div>
@@ -3061,6 +3518,15 @@ export default function App() {
             파일
           </button>
         </div>
+        <button
+          onClick={undoLastPaymentImport}
+          disabled={!lastPaymentImport || isLoading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border-theme bg-white py-2 text-[11px] font-bold text-text-main transition-all hover:bg-bg-theme disabled:cursor-not-allowed disabled:text-slate-300"
+          title={lastPaymentImport ? `${lastPaymentImport.fileName} 업로드 되돌리기` : '되돌릴 최근 업로드가 없습니다.'}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          최근 업로드 되돌리기
+        </button>
         <button
           onClick={handleResetAllData}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-transparent py-2 text-[11px] font-bold text-red-500 transition-all hover:border-red-100 hover:bg-red-50"
@@ -3337,10 +3803,11 @@ export default function App() {
                     </div>
                   </motion.div>
 
-                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                     {[
                       { label: '등록 학생', value: `${studentInfos.length}명`, icon: Users, tone: 'text-primary bg-primary-light' },
                       { label: '결제 기록', value: `${allPaymentRecords.length}건`, icon: CreditCard, tone: 'text-emerald-700 bg-emerald-50' },
+                      { label: '결제 확인', value: `${paymentAttentionStudents.length}명`, icon: AlertCircle, tone: 'text-red-700 bg-red-50' },
                       { label: '저장 문서', value: `${annualSavedCount + selectedMonthSavedCount}건`, icon: FileText, tone: 'text-amber-700 bg-amber-50' },
                       { label: '임시저장', value: `${draftItems.length}건`, icon: ArchiveRestore, tone: 'text-slate-700 bg-slate-100' },
                     ].map(item => (
@@ -3417,7 +3884,7 @@ export default function App() {
                       <div className="rounded-lg border border-border-theme bg-white p-5 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-black text-text-main">메시지 발신</div>
+                            <div className="text-sm font-black text-text-main">메시지 작성</div>
                             <div className="mt-1 text-xs font-semibold text-text-muted">수업 일정, 결제 기록, 문서 상태 안내문 생성</div>
                           </div>
                           <MessageSquare className="h-5 w-5 text-slate-700" />
@@ -3466,10 +3933,21 @@ export default function App() {
                           ))}
                         </div>
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          undoLastPaymentImport();
+                        }}
+                        disabled={!lastPaymentImport || isLoading}
+                        className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border-theme bg-white px-4 py-2 text-xs font-black text-text-main hover:bg-bg-theme disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        최근 업로드 되돌리기
+                      </button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
                     <div className="rounded-lg border border-border-theme bg-white p-5">
                       <div className="flex items-center gap-2 text-sm font-black text-text-main">
                         <CreditCard className="h-4 w-4 text-emerald-700" />
@@ -3531,6 +4009,22 @@ export default function App() {
                         임시저장 열기
                       </button>
                     </div>
+
+                    <div className="rounded-lg border border-border-theme bg-white p-5">
+                      <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                        운영 체크
+                      </div>
+                      <p className="mt-2 text-xs font-semibold leading-relaxed text-text-muted">
+                        결제 확인 {paymentAttentionStudents.length}명 · 연락처 확인 {contactAttentionStudents.length}명
+                      </p>
+                      <button
+                        onClick={() => setCurrentView('students')}
+                        className="mt-4 rounded-lg bg-red-50 px-4 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                      >
+                        학생정보 확인
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3567,6 +4061,12 @@ export default function App() {
                         </span>
                         <span className={`px-2 py-1 rounded-full text-[10px] font-black border ${selectedMonthlySaved ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
                           {selectedMonth}월 {selectedMonthlySaved ? '저장됨' : '미저장'}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black border ${selectedPaymentStatus.tone}`}>
+                          {selectedPaymentStatus.label}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-black border ${selectedGuardianPhone && selectedMessageConsent ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                          {selectedGuardianPhone && selectedMessageConsent ? '연락 가능' : '연락 확인'}
                         </span>
                         {privacyMode && (
                           <span className="px-2 py-1 rounded-full text-[10px] font-black border bg-slate-900 text-white border-slate-900">보호 모드</span>
@@ -4093,6 +4593,123 @@ export default function App() {
         onDelete={handleDeleteDocumentTemplate}
       />
 
+      {pendingPaymentImport && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPendingPaymentImport(null)} />
+          <div className="relative bg-white w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl shadow-2xl border border-border-theme p-6 flex flex-col">
+            <div className="flex items-center justify-between gap-4 mb-5">
+              <div>
+                <h3 className="text-xl font-black text-text-main flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-primary" />
+                  결제내역 업로드 미리보기
+                </h3>
+                <p className="text-sm text-text-muted mt-1">{pendingPaymentImport.fileName}</p>
+              </div>
+              <button onClick={() => setPendingPaymentImport(null)} className="text-text-muted hover:text-text-main">닫기</button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+              {[
+                { label: '전체 행', value: pendingPaymentImport.preview.totalRows },
+                { label: '저장 대상', value: pendingPaymentImport.preview.validRows },
+                { label: '신규', value: pendingPaymentImport.preview.newCount },
+                { label: '업데이트', value: pendingPaymentImport.preview.updateCount },
+                { label: '제외/중복', value: pendingPaymentImport.preview.skippedCount + pendingPaymentImport.preview.duplicateInFileCount + pendingPaymentImport.preview.canceledCount },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl border border-border-theme bg-bg-theme px-4 py-3">
+                  <div className="text-2xl font-black text-text-main">{item.value}</div>
+                  <div className="mt-1 text-xs font-bold text-text-muted">{item.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {pendingPaymentImport.preview.unknownStudentNames.length > 0 && (
+              <div className="mb-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+                학생 정보에 없는 이름: {pendingPaymentImport.preview.unknownStudentNames.slice(0, 10).map(getStudentDisplayName).join(', ')}
+                {pendingPaymentImport.preview.unknownStudentNames.length > 10 ? ` 외 ${pendingPaymentImport.preview.unknownStudentNames.length - 10}명` : ''}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-[0.8fr_1.2fr] gap-4 overflow-auto pr-1">
+              <div className="rounded-xl border border-border-theme bg-white p-4">
+                <div className="text-sm font-black text-text-main mb-3">학생별 저장 대상</div>
+                <div className="max-h-[360px] overflow-auto space-y-2">
+                  {pendingPaymentImport.preview.byStudent.length > 0 ? pendingPaymentImport.preview.byStudent.map(item => (
+                    <div key={item.name} className="flex items-center justify-between rounded-lg bg-bg-theme px-3 py-2 text-xs font-bold">
+                      <span className="truncate text-text-main">{getStudentDisplayName(item.name)}</span>
+                      <span className="text-primary">{item.count}건</span>
+                    </div>
+                  )) : (
+                    <div className="py-10 text-center text-xs font-semibold text-text-muted">저장 대상 학생이 없습니다.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border-theme bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-border-theme text-sm font-black text-text-main">행 미리보기</div>
+                <div className="max-h-[390px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-slate-50 text-text-muted">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-black">상태</th>
+                        <th className="text-left px-3 py-2 font-black">학생</th>
+                        <th className="text-left px-3 py-2 font-black">거래일자</th>
+                        <th className="text-left px-3 py-2 font-black">시간</th>
+                        <th className="text-left px-3 py-2 font-black">금액</th>
+                        <th className="text-left px-3 py-2 font-black">영역</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingPaymentImport.preview.rows.map((row, idx) => (
+                        <tr key={`${row.studentName}_${row.transactionDate}_${idx}`} className="border-t border-border-theme/60">
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black ${getPaymentPreviewActionClass(row.action)}`}>
+                              {getPaymentPreviewActionLabel(row.action)}
+                            </span>
+                            {row.reason && <div className="mt-1 text-[10px] font-semibold text-text-muted">{row.reason}</div>}
+                          </td>
+                          <td className="px-3 py-2 font-bold text-text-main whitespace-nowrap">{row.studentName === '-' ? '-' : getStudentDisplayName(row.studentName)}</td>
+                          <td className="px-3 py-2 font-semibold text-text-main whitespace-nowrap">{row.transactionDate}</td>
+                          <td className="px-3 py-2 font-semibold text-text-main whitespace-nowrap">{row.transactionTime || '-'}</td>
+                          <td className="px-3 py-2 font-semibold text-text-main whitespace-nowrap">{row.amount || '-'}</td>
+                          <td className="px-3 py-2 font-semibold text-text-main whitespace-nowrap">{row.treatmentArea}</td>
+                        </tr>
+                      ))}
+                      {pendingPaymentImport.preview.rows.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-3 py-10 text-center font-semibold text-text-muted">미리보기 행이 없습니다.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-text-muted">
+                저장을 확정하면 신규 문서는 생성되고, 같은 학생/날짜/시간 기록은 업데이트됩니다.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPendingPaymentImport(null)}
+                  className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={confirmPendingPaymentImport}
+                  disabled={isLoading || pendingPaymentImport.preview.validRows === 0}
+                  className="rounded-xl bg-primary px-5 py-2 text-sm font-black text-white hover:bg-primary-dark disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  {isLoading ? '저장 중' : '확정 저장'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showHistoryModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)} />
@@ -4185,25 +4802,114 @@ export default function App() {
       {showMessageModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 no-print">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowMessageModal(false)} />
-          <div className="relative bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-border-theme p-6">
+          <div className="relative bg-white w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl shadow-2xl border border-border-theme p-6 flex flex-col">
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="text-xl font-black text-text-main flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
-                  메시지 발신
+                  메시지 작성
                 </h3>
                 <p className="text-sm text-text-muted mt-1">
-                  {selectedStudent ? `${getStudentDisplayName(selectedStudent.name)} 학생 기준` : '학생 선택 전 기본 안내문'}
+                  {selectedStudent ? `${getStudentDisplayName(selectedStudent.name)} 학생 기준 안내문 작성` : '학생 선택 전 기본 안내문'}
                 </p>
               </div>
               <button onClick={() => setShowMessageModal(false)} className="text-text-muted hover:text-text-main">닫기</button>
             </div>
 
-            <textarea
-              readOnly
-              value={selectedMessageText}
-              className="min-h-[220px] w-full resize-y rounded-xl border border-border-theme bg-bg-theme p-4 text-sm font-semibold leading-relaxed text-text-main outline-none"
-            />
+            <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-4 overflow-auto pr-1">
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border-theme bg-bg-theme/50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wider text-text-muted mb-3">템플릿</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(Object.keys(messageTemplateLabels) as MessageTemplateKey[]).map(key => (
+                      <button
+                        key={key}
+                        onClick={() => setMessageTemplateKey(key)}
+                        className={`rounded-lg px-3 py-2 text-xs font-black transition-all ${
+                          messageTemplateKey === key
+                            ? 'bg-primary text-white'
+                            : 'bg-white border border-border-theme text-text-main hover:bg-primary-light hover:text-primary'
+                        }`}
+                      >
+                        {messageTemplateLabels[key]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-black text-text-main">메시지 본문</span>
+                  <textarea
+                    value={messageDraftText}
+                    onChange={(e) => setMessageDraftText(e.target.value)}
+                    className="min-h-[280px] w-full resize-y rounded-xl border border-border-theme bg-bg-theme p-4 text-sm font-semibold leading-relaxed text-text-main outline-none focus:border-primary"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border-theme bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-text-main">보호자 연락처</div>
+                      <div className="mt-1 text-xs font-semibold text-text-muted">
+                        {selectedGuardianName || selectedGuardianPhone
+                          ? `${selectedGuardianName || '보호자'}${selectedGuardianRelation ? ` · ${selectedGuardianRelation}` : ''}`
+                          : '학생 정보 관리에서 보호자 정보를 등록해 주세요.'}
+                      </div>
+                    </div>
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${
+                      selectedMessageConsent ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                    }`}>
+                      {selectedMessageConsent ? '수신 동의' : '동의 확인 필요'}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-2 text-xs font-bold">
+                    <div className="flex justify-between rounded-lg bg-bg-theme px-3 py-2">
+                      <span className="text-text-muted">연락처</span>
+                      <span className="text-text-main">{selectedGuardianDisplayPhone || '미등록'}</span>
+                    </div>
+                    <div className="flex justify-between rounded-lg bg-bg-theme px-3 py-2">
+                      <span className="text-text-muted">결제 상태</span>
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${selectedPaymentStatus.tone}`}>
+                        {selectedPaymentStatus.label}
+                      </span>
+                    </div>
+                  </div>
+                  {(!selectedGuardianPhone || !selectedMessageConsent) && (
+                    <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold leading-relaxed text-amber-700">
+                      문자앱을 열기 전 연락처와 수신 동의를 확인해 주세요.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-border-theme bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="text-sm font-black text-text-main">최근 작성 이력</div>
+                    <span className="text-[10px] font-black text-text-muted">{selectedMessageLogs.length}건</span>
+                  </div>
+                  <div className="max-h-[220px] overflow-auto space-y-2">
+                    {selectedMessageLogs.length > 0 ? selectedMessageLogs.map(log => (
+                      <div key={log.id} className="rounded-lg border border-border-theme bg-bg-theme px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-black text-text-main">
+                            {log.studentName === '미선택' ? '미선택' : getStudentDisplayName(log.studentName)} · {messageTemplateLabels[log.templateKey] || '메시지'}
+                          </div>
+                          <div className="text-[10px] font-bold text-text-muted">
+                            {log.action === 'copied' ? '복사' : '문자앱'}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[10px] font-semibold text-text-muted">
+                          {new Date(log.createdAtMs).toLocaleString()} · {(privacyMode ? maskPhoneValue(log.targetPhone) : log.targetPhone) || '연락처 없음'}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="py-8 text-center text-xs font-semibold text-text-muted">작성 이력이 없습니다.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button

@@ -451,3 +451,72 @@ Verification:
 Next if interrupted:
 - Re-run `git diff --check && npm run lint && npm run build`.
 - In the UI, confirm the first screen is a student operations dashboard, not an upload-only landing screen, and that upload/message/payment-date actions are reachable from that dashboard.
+
+## 2026-06-07 Monthly Payment Details Sample Fields
+
+Objective:
+- 월간일지 하단 `결제 내역`에서 회차 정보를 제거한다.
+- 샘플 양식 결제 줄에 있는 누락 항목을 확인해 반영한다.
+
+Sample checked:
+- `/Users/audifox/Downloads/치료기관 연간 계획서 및 일지 양식-차윤우25.6~26.6.hwp`
+- Extracted payment line style: `2025-06-14 (토) / 12:03:14 / 금사초등학교 / 차윤우 / 55,000원 / 언어치료 / 서은경`.
+
+Change:
+- `src/components/MonthlyJournal.tsx`
+  - Bottom `결제 내역` no longer displays `회차`.
+  - Added sample fields `소속`, `학생명`, `치료사` alongside `결제일`, `시간`, `금액`, `영역`.
+  - Payment dates now display as `YYYY-MM-DD (요일)` when a year is available; payment times preserve seconds if the data has them.
+- `src/utils/docxExport.ts`
+  - Default DOCX monthly payment details use the same no-회차 field set: `결제일 / 시간 / 소속 / 학생명 / 금액 / 영역 / 치료사`.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, open a monthly journal with payment records and confirm bottom `결제 내역` contains no `회차` text and includes school/student/therapist fields.
+
+## 2026-06-07 Operations Feature Pass
+
+Objective:
+- 추천 기능과 수정할 부분을 실제 앱에 반영한다.
+- 학생별 운영 흐름에서 보호자 연락, 메시지 작성, 결제 업로드 안전장치, 결제 확인 상태를 강화한다.
+
+Change:
+- `src/types.ts`
+  - `StudentInfo` and `Student` now include `guardianName`, `guardianPhone`, `guardianRelation`, and `messageConsent`.
+- `src/components/StudentManagement.tsx`
+  - Student cards show guardian/contact/message-consent status.
+  - Add/edit modal includes guardian name, relation, phone, and message consent controls.
+  - The modal is widened to fit the new operational fields.
+- `src/App.tsx`
+  - Student add/update/select synchronization preserves guardian/contact fields.
+  - Message flow was renamed from `메시지 발신` to `메시지 작성` because the app opens a local SMS draft instead of sending through a backend provider.
+  - Message modal now supports templates for monthly notice, payment check, document status, and schedule notice.
+  - Message body is editable, uses guardian/contact/payment/document context, and stores recent copy/SMS-open logs in `localStorage`.
+  - Privacy mode now masks message student labels and displayed guardian phone numbers.
+  - Payment upload now stages CSV/XLS/XLSX data in a preview modal before writing to Firestore.
+  - Payment preview shows total rows, save targets, new/update counts, skipped/duplicate/canceled counts, unknown student names, per-student counts, and sample rows.
+  - Confirmed uploads keep enough in-memory state to undo the latest upload by deleting newly created docs and restoring overwritten docs.
+  - Dashboard/sidebar/document headers show current-month payment status and contact readiness.
+  - Home dashboard includes payment-check and operations-check summaries.
+- `src/components/ScheduleManager.tsx`
+  - Schedule events can now be clicked to record `예정`, `출석`, `결석`, `취소`, or `보강`.
+  - Each schedule operation record can store a note for absence reason, cancellation reason, or makeup plan.
+  - Operation records are stored in `localStorage` under `schedule_operation_records_v1`.
+  - Month/week/day views now color events by operation status and show the status label.
+  - The schedule header includes current-month operation summaries for attended, makeup, absent, and cancelled sessions.
+
+Verification:
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+Next if interrupted:
+- Re-run `git diff --check && npm run lint && npm run build`.
+- In the UI, register/edit a student with guardian contact fields, open `메시지 작성`, switch templates, copy or open SMS, and confirm the recent log appears.
+- Upload a small CSV/XLSX payment file, confirm the preview appears before save, run `확정 저장`, then use `최근 업로드 되돌리기` to verify rollback behavior.
+- Open `시간표 관리`, click an expected or paid session, change status/note, save, and confirm the event color/status and current-month summary update.

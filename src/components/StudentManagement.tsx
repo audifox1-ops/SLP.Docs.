@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText, Upload, CheckCircle2, Loader2, Paperclip } from 'lucide-react';
+import { Plus, Edit2, Trash2, UserPlus, Save, X, Search, User, FileText, CheckCircle2, Loader2, Paperclip, Phone, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentInfo } from '../types';
 import { extractTextFromFile } from '../utils/extractText';
@@ -23,6 +23,10 @@ const createEmptyStudentInfo = (): StudentInfo => ({
   disabilityType: '기타',
   treatmentArea: '언어치료',
   therapistName: '',
+  guardianName: '',
+  guardianPhone: '',
+  guardianRelation: '보호자',
+  messageConsent: false,
   scheduleDay: '',
   scheduleTime: '',
   scheduleFrequency: '1',
@@ -37,6 +41,10 @@ const normalizeStudentFormData = (info: StudentInfo): StudentInfo => ({
   disabilityType: info.disabilityType.trim(),
   treatmentArea: info.treatmentArea.trim(),
   therapistName: info.therapistName.trim(),
+  guardianName: (info.guardianName || '').trim(),
+  guardianPhone: (info.guardianPhone || '').trim(),
+  guardianRelation: (info.guardianRelation || '').trim(),
+  messageConsent: Boolean(info.messageConsent),
   scheduleDay: normalizeScheduleDay(info.scheduleDay),
   scheduleTime: normalizeScheduleTime(info.scheduleTime),
   scheduleFrequency: normalizeScheduleFrequency(info.scheduleFrequency),
@@ -282,6 +290,28 @@ export const StudentManagement: React.FC<Props> = ({
                           {info.scheduleDay || '요일 미정'} · {info.scheduleTime || '시간 미정'} · 주 {info.scheduleFrequency || '1'}회
                         </span>
                       </div>
+                      <div className="flex justify-between gap-3 border-t border-slate-50 pt-2 mt-2">
+                        <span className="text-text-muted flex-shrink-0">보호자</span>
+                        <span className="font-semibold text-right leading-snug">
+                          {info.guardianName || '미등록'}
+                          {info.guardianRelation ? ` · ${info.guardianRelation}` : ''}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-text-muted flex-shrink-0">연락처</span>
+                        <span className="font-semibold text-right leading-snug">
+                          {info.guardianPhone || '미등록'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-text-muted flex items-center gap-1 flex-shrink-0">
+                          <MessageSquare className="w-3 h-3" />
+                          메시지
+                        </span>
+                        <span className={`font-bold ${info.messageConsent ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {info.messageConsent ? '수신 동의' : '동의 확인 필요'}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex gap-2 mt-4">
@@ -335,7 +365,7 @@ export const StudentManagement: React.FC<Props> = ({
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg max-h-[90vh] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+              className="relative w-full max-w-3xl max-h-[90vh] bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
             >
               <div className="p-8 border-b border-border-theme flex justify-between items-center bg-bg-theme/30">
                 <div className="flex items-center gap-3">
@@ -387,6 +417,61 @@ export const StudentManagement: React.FC<Props> = ({
                     placeholder="학교명 입력"
                     className="w-full px-4 py-3 bg-bg-theme border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
                   />
+                </div>
+
+                <div className="rounded-2xl border border-border-theme bg-bg-theme/50 p-4 space-y-4">
+                  <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                    <Phone className="h-4 w-4 text-primary" />
+                    보호자 연락 정보
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">보호자명</label>
+                      <input
+                        type="text"
+                        value={formData.guardianName || ''}
+                        onChange={(e) => setFormData({ ...formData, guardianName: e.target.value })}
+                        placeholder="보호자 이름"
+                        autoComplete="off"
+                        className="w-full px-4 py-3 bg-white border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">관계</label>
+                      <select
+                        value={formData.guardianRelation || '보호자'}
+                        onChange={(e) => setFormData({ ...formData, guardianRelation: e.target.value })}
+                        className="w-full px-4 py-3 bg-white border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium cursor-pointer"
+                      >
+                        {['보호자', '부', '모', '조부모', '교사', '기타'].map(relation => (
+                          <option key={relation} value={relation}>{relation}</option>
+                        ))}
+                        {formData.guardianRelation && !['보호자', '부', '모', '조부모', '교사', '기타'].includes(formData.guardianRelation) && (
+                          <option value={formData.guardianRelation}>{formData.guardianRelation} (기존)</option>
+                        )}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-text-muted ml-1 uppercase tracking-wider">연락처</label>
+                      <input
+                        type="tel"
+                        value={formData.guardianPhone || ''}
+                        onChange={(e) => setFormData({ ...formData, guardianPhone: e.target.value })}
+                        placeholder="010-0000-0000"
+                        autoComplete="tel"
+                        className="w-full px-4 py-3 bg-white border border-border-theme rounded-2xl focus:border-primary outline-none transition-all font-medium"
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-3 rounded-xl border border-border-theme bg-white px-4 py-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formData.messageConsent)}
+                      onChange={(e) => setFormData({ ...formData, messageConsent: e.target.checked })}
+                      className="h-4 w-4 rounded border-border-theme text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm font-bold text-text-main">보호자 메시지 수신 동의 확인됨</span>
+                  </label>
                 </div>
 
                 <div className="space-y-2">

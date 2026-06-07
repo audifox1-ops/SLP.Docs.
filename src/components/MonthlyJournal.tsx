@@ -52,14 +52,18 @@ const formatPaymentDate = (value?: string) => {
   const text = String(value || '').trim();
   const match = text.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
   if (!match) return text || '-';
-  const yearPrefix = match[1] ? `${match[1].length === 2 ? `20${match[1]}` : match[1]}.` : '';
-  return `${yearPrefix}${Number(match[2])}.${Number(match[3])}`;
+  const year = match[1] ? (match[1].length === 2 ? `20${match[1]}` : match[1]) : '';
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year) return `${month}.${day}`;
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][new Date(Number(year), month - 1, day).getDay()];
+  return `${year}-${pad2(month)}-${pad2(day)} (${weekday})`;
 };
 
 const formatPaymentTime = (value?: string) => {
   const text = String(value || '').trim();
-  const match = text.match(/(\d{1,2}):(\d{2})/);
-  return match ? `${match[1].padStart(2, '0')}:${match[2]}` : text || '-';
+  const match = text.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  return match ? `${match[1].padStart(2, '0')}:${match[2]}${match[3] ? `:${match[3]}` : ''}` : text || '-';
 };
 
 const formatPaymentAmount = (value: PaymentRecord['amount']) => {
@@ -77,12 +81,14 @@ const formatSessionDateOnly = (value?: string) => {
   return match ? `${pad2(Number(match[1]))}/${pad2(Number(match[2]))}` : dateText;
 };
 
-const formatPaymentParts = (record: PaymentRecord, idx: number) => ({
-  index: `${idx + 1}회차`,
+const formatPaymentParts = (record: PaymentRecord, student: Student) => ({
   date: formatPaymentDate(record.transactionDate),
   time: formatPaymentTime(record.transactionTime),
-  area: record.treatmentArea || '-',
+  school: student.school || '-',
+  studentName: student.name || record.studentName || '-',
   amount: formatPaymentAmount(record.amount),
+  area: record.treatmentArea || student.treatmentArea || '-',
+  therapist: student.therapistName || '-',
 });
 
 /** 날짜 인라인 편집 팝업 */
@@ -538,25 +544,29 @@ export const MonthlyJournal: React.FC<Props> = ({
         <div className="font-bold">결제 내역</div>
         {paymentRecords.length > 0 ? (
           <div className="space-y-0.5">
-            <div className="grid grid-cols-[3rem_6.8rem_4.4rem_minmax(5.5rem,1fr)_5.5rem] gap-x-2 border-b border-black/20 pb-0.5 font-bold">
-              <span>회차</span>
+            <div className="grid grid-cols-[6.8rem_4.4rem_minmax(5.3rem,1fr)_4.4rem_5.5rem_minmax(5rem,1fr)_4.4rem] gap-x-1.5 border-b border-black/20 pb-0.5 font-bold">
               <span>결제일</span>
               <span>시간</span>
-              <span>영역</span>
+              <span>소속</span>
+              <span>학생명</span>
               <span className="text-right">금액</span>
+              <span>영역</span>
+              <span>치료사</span>
             </div>
             {paymentRecords.map((record, idx) => {
-              const parts = formatPaymentParts(record, idx);
+              const parts = formatPaymentParts(record, effectiveStudent);
               return (
                 <div
                   key={record.id || `${record.studentName}-${record.transactionDate}-${idx}`}
-                  className="grid grid-cols-[3rem_6.8rem_4.4rem_minmax(5.5rem,1fr)_5.5rem] gap-x-2"
+                  className="grid grid-cols-[6.8rem_4.4rem_minmax(5.3rem,1fr)_4.4rem_5.5rem_minmax(5rem,1fr)_4.4rem] gap-x-1.5"
                 >
-                  <span>{parts.index}</span>
                   <span>{parts.date}</span>
                   <span>{parts.time}</span>
-                  <span>{parts.area}</span>
+                  <span>{parts.school}</span>
+                  <span>{parts.studentName}</span>
                   <span className="text-right">{parts.amount}</span>
+                  <span>{parts.area}</span>
+                  <span>{parts.therapist}</span>
                 </div>
               );
             })}

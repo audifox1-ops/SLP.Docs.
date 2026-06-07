@@ -38,14 +38,18 @@ const formatPaymentDate = (value?: string) => {
   const text = String(value || '').trim();
   const match = text.match(/(?:(\d{2,4})[-./\s년]+)?(\d{1,2})[-./\s월]+(\d{1,2})/);
   if (!match) return sanitizeText(text || '-');
-  const yearPrefix = match[1] ? `${match[1].length === 2 ? `20${match[1]}` : match[1]}.` : '';
-  return sanitizeText(`${yearPrefix}${Number(match[2])}.${Number(match[3])}`);
+  const year = match[1] ? (match[1].length === 2 ? `20${match[1]}` : match[1]) : '';
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year) return sanitizeText(`${month}.${day}`);
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][new Date(Number(year), month - 1, day).getDay()];
+  return sanitizeText(`${year}-${pad2(month)}-${pad2(day)} (${weekday})`);
 };
 
 const formatPaymentTime = (value?: string) => {
   const text = String(value || '').trim();
-  const match = text.match(/(\d{1,2}):(\d{2})/);
-  return sanitizeText(match ? `${match[1].padStart(2, '0')}:${match[2]}` : text || '-');
+  const match = text.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  return sanitizeText(match ? `${match[1].padStart(2, '0')}:${match[2]}${match[3] ? `:${match[3]}` : ''}` : text || '-');
 };
 
 const formatPaymentAmount = (value: PaymentRecord['amount']) => {
@@ -63,11 +67,14 @@ const formatSessionDateOnly = (value?: string) => {
   return sanitizeText(match ? `${pad2(Number(match[1]))}/${pad2(Number(match[2]))}` : dateText);
 };
 
-const formatPaymentLine = (record: PaymentRecord, idx: number) => {
+const formatPaymentLine = (record: PaymentRecord, student: Student) => {
   const time = formatPaymentTime(record.transactionTime);
+  const school = student.school ? sanitizeText(student.school) : '-';
+  const studentName = student.name ? sanitizeText(student.name) : sanitizeText(record.studentName || '-');
   const area = record.treatmentArea ? sanitizeText(record.treatmentArea) : '-';
   const amount = formatPaymentAmount(record.amount);
-  return sanitizeText(`${idx + 1}회차\t${formatPaymentDate(record.transactionDate)}\t${time}\t${area}\t${amount}`);
+  const therapist = student.therapistName ? sanitizeText(student.therapistName) : '-';
+  return sanitizeText(`${formatPaymentDate(record.transactionDate)}\t${time}\t${school}\t${studentName}\t${amount}\t${area}\t${therapist}`);
 };
 
 export const generateAnnualWordSection = (selectedStudent: Student, annualData: AnnualPlanData, selectedYear: number) => {
@@ -295,11 +302,11 @@ export const generateMonthlyWordSection = (
       ...(paymentRecords.length > 0
         ? [
           new Paragraph({
-            children: [new TextRun({ text: "회차\t결제일\t시간\t영역\t금액", bold: true })],
+            children: [new TextRun({ text: "결제일\t시간\t소속\t학생명\t금액\t영역\t치료사", bold: true })],
             spacing: { after: 40 },
           }),
-          ...paymentRecords.map((record, idx) => new Paragraph({
-            text: formatPaymentLine(record, idx),
+          ...paymentRecords.map(record => new Paragraph({
+            text: formatPaymentLine(record, documentStudent),
             spacing: { after: 40 },
           })),
         ]

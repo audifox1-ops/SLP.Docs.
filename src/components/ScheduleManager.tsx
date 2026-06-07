@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, CheckCircle2, CircleDashed } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, CheckCircle2, CircleDashed, AlertCircle, Save, X, RotateCcw } from 'lucide-react';
 import { StudentInfo, PaymentRecord } from '../types';
 import { getScheduleDayNumber } from '../utils/studentSchedule';
 
@@ -9,10 +9,72 @@ interface Props {
 }
 
 type ViewMode = 'month' | 'week' | 'day';
+type SessionOperationStatus = 'planned' | 'attended' | 'absent' | 'cancelled' | 'makeup';
+
+interface SessionOperationRecord {
+  key: string;
+  date: string;
+  studentName: string;
+  time: string;
+  status: SessionOperationStatus;
+  note: string;
+  updatedAtMs: number;
+}
+
+interface ScheduleEvent {
+  key: string;
+  date: string;
+  name: string;
+  time: string;
+  isActual: boolean;
+  status: SessionOperationStatus;
+  note: string;
+}
+
+const SESSION_OPERATION_STORAGE_KEY = 'schedule_operation_records_v1';
+
+const SESSION_STATUS_META: Record<SessionOperationStatus, { label: string; monthClass: string; timelineClass: string }> = {
+  planned: {
+    label: '예정',
+    monthClass: 'bg-slate-50 text-slate-500 border-slate-200 border-dashed',
+    timelineClass: 'bg-slate-100/80 text-slate-600 border-slate-300 border-dashed z-0 opacity-80'
+  },
+  attended: {
+    label: '출석',
+    monthClass: 'bg-blue-50 text-blue-700 border-blue-200 font-medium',
+    timelineClass: 'bg-blue-100/90 text-blue-800 border-blue-300 z-10'
+  },
+  absent: {
+    label: '결석',
+    monthClass: 'bg-red-50 text-red-700 border-red-200 font-medium',
+    timelineClass: 'bg-red-100/90 text-red-800 border-red-300 z-20'
+  },
+  cancelled: {
+    label: '취소',
+    monthClass: 'bg-slate-100 text-slate-500 border-slate-300 font-medium line-through',
+    timelineClass: 'bg-slate-200/90 text-slate-600 border-slate-300 z-20 line-through'
+  },
+  makeup: {
+    label: '보강',
+    monthClass: 'bg-purple-50 text-purple-700 border-purple-200 font-medium',
+    timelineClass: 'bg-purple-100/90 text-purple-800 border-purple-300 z-20'
+  }
+};
 
 export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [operationRecords, setOperationRecords] = useState<Record<string, SessionOperationRecord>>(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_OPERATION_STORAGE_KEY);
+      return stored ? JSON.parse(stored) as Record<string, SessionOperationRecord> : {};
+    } catch {
+      return {};
+    }
+  });
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [editingStatus, setEditingStatus] = useState<SessionOperationStatus>('planned');
+  const [editingNote, setEditingNote] = useState('');
 
   // Helper functions for dates
   const year = currentDate.getFullYear();
@@ -77,6 +139,70 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
 
   const weekDays = getWeekDays(new Date(currentDate));
 
+  useEffect(() => {
+    localStorage.setItem(SESSION_OPERATION_STORAGE_KEY, JSON.stringify(operationRecords));
+  }, [operationRecords]);
+
+  const getSessionOperationKey = (date: string, studentName: string) => `${date}_${studentName}`;
+
+  const buildScheduleEvent = (date: string, name: string, time: string, isActual: boolean): ScheduleEvent => {
+    const key = getSessionOperationKey(date, name);
+    const record = operationRecords[key];
+    return {
+      key,
+      date,
+      name,
+      time,
+      isActual,
+      status: record?.status || (isActual ? 'attended' : 'planned'),
+      note: record?.note || ''
+    };
+  };
+
+  const openOperationEditor = (event: ScheduleEvent) => {
+    setEditingEvent(event);
+    setEditingStatus(event.status);
+    setEditingNote(event.note);
+  };
+
+  const saveOperationRecord = () => {
+    if (!editingEvent) return;
+    const record: SessionOperationRecord = {
+      key: editingEvent.key,
+      date: editingEvent.date,
+      studentName: editingEvent.name,
+      time: editingEvent.time,
+      status: editingStatus,
+      note: editingNote.trim(),
+      updatedAtMs: Date.now()
+    };
+    setOperationRecords(prev => ({ ...prev, [record.key]: record }));
+    setEditingEvent(null);
+  };
+
+  const resetOperationRecord = () => {
+    if (!editingEvent) return;
+    setOperationRecords(prev => {
+      const next = { ...prev };
+      delete next[editingEvent.key];
+      return next;
+    });
+    setEditingEvent(null);
+  };
+
+  const currentMonthOperationSummary = useMemo(() => {
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+    const records = Object.values(operationRecords as Record<string, SessionOperationRecord>)
+      .filter(record => record.date.startsWith(monthPrefix));
+    return {
+      total: records.length,
+      attended: records.filter(record => record.status === 'attended').length,
+      makeup: records.filter(record => record.status === 'makeup').length,
+      absent: records.filter(record => record.status === 'absent').length,
+      cancelled: records.filter(record => record.status === 'cancelled').length
+    };
+  }, [operationRecords, year, month]);
+
   // Build a map of dates to scheduled students & actual payments
   // Record structure: YYYY-MM-DD
   const scheduleMap = useMemo(() => {
@@ -126,26 +252,18 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
       const dayData = isCurrentMonth ? scheduleMap.get(dateStr) : null;
       
       // Combine expected and actual to a unified list
-      const eventList: { name: string, time: string, isActual: boolean }[] = [];
+      const eventList: ScheduleEvent[] = [];
       
       if (dayData) {
         dayData.actual.forEach(a => {
-          eventList.push({
-            name: a.studentName,
-            time: a.transactionTime || '시간미상',
-            isActual: true
-          });
+          eventList.push(buildScheduleEvent(dateStr, a.studentName, a.transactionTime || '시간미상', true));
         });
         
         dayData.expected.forEach(e => {
           // If already in actual, skip showing expected to avoid duplicates if you want. 
           // For now, let's show expected only if there is no actual payment for this student on this day
           if (!dayData.actual.some(a => a.studentName === e.name)) {
-            eventList.push({
-              name: e.name,
-              time: e.scheduleTime || '미정',
-              isActual: false
-            });
+            eventList.push(buildScheduleEvent(dateStr, e.name, e.scheduleTime || '미정', false));
           }
         });
       }
@@ -159,18 +277,16 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
           </div>
           <div className="flex flex-col gap-1 overflow-y-auto max-h-[90px]">
             {isCurrentMonth && eventList.map((ev, idx) => (
-              <div 
+              <button
+                type="button"
                 key={idx} 
-                className={`text-[10px] px-1.5 py-1 rounded truncate border flex items-center gap-1
-                  ${ev.isActual 
-                    ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium' 
-                    : 'bg-slate-50 text-slate-500 border-slate-200 border-dashed'
-                  }`}
-                title={`${ev.time} - ${ev.name}`}
+                onClick={() => openOperationEditor(ev)}
+                className={`text-[10px] px-1.5 py-1 rounded truncate border flex items-center gap-1 text-left ${SESSION_STATUS_META[ev.status].monthClass}`}
+                title={`${ev.time} - ${ev.name} - ${SESSION_STATUS_META[ev.status].label}${ev.note ? `: ${ev.note}` : ''}`}
               >
-                {ev.isActual ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : <CircleDashed className="w-3 h-3 flex-shrink-0" />}
-                <span className="truncate">{ev.time.split('~')[0]} {ev.name}</span>
-              </div>
+                {ev.status === 'attended' ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : ev.status === 'planned' ? <CircleDashed className="w-3 h-3 flex-shrink-0" /> : <AlertCircle className="w-3 h-3 flex-shrink-0" />}
+                <span className="truncate">{ev.time.split('~')[0]} {ev.name} · {SESSION_STATUS_META[ev.status].label}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -234,12 +350,12 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
               const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
               const dayData = scheduleMap.get(dateStr);
               
-              const eventList: { name: string, time: string, isActual: boolean }[] = [];
+              const eventList: ScheduleEvent[] = [];
               if (dayData) {
-                dayData.actual.forEach(a => eventList.push({ name: a.studentName, time: a.transactionTime || '09:00:00', isActual: true }));
+                dayData.actual.forEach(a => eventList.push(buildScheduleEvent(dateStr, a.studentName, a.transactionTime || '09:00:00', true)));
                 dayData.expected.forEach(e => {
                   if (!dayData.actual.some(a => a.studentName === e.name)) {
-                    eventList.push({ name: e.name, time: e.scheduleTime || '09:00', isActual: false });
+                    eventList.push(buildScheduleEvent(dateStr, e.name, e.scheduleTime || '09:00', false));
                   }
                 });
               }
@@ -271,18 +387,16 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
                     const heightPx = 50; 
 
                     return (
-                      <div 
+                      <button
+                        type="button"
                         key={idx}
+                        onClick={() => openOperationEditor(ev)}
                         style={{ top: `${topPx}px`, height: `${heightPx}px` }}
-                        className={`absolute left-1 right-1 rounded-lg px-2 py-1.5 text-xs shadow-sm border overflow-hidden flex flex-col
-                          ${ev.isActual 
-                            ? 'bg-blue-100/90 text-blue-800 border-blue-300 z-10' 
-                            : 'bg-slate-100/80 text-slate-600 border-slate-300 border-dashed z-0 opacity-80'
-                          }`}
+                        className={`absolute left-1 right-1 rounded-lg px-2 py-1.5 text-xs shadow-sm border overflow-hidden flex flex-col text-left ${SESSION_STATUS_META[ev.status].timelineClass}`}
                       >
                         <div className="font-bold truncate">{ev.name}</div>
-                        <div className="text-[10px] opacity-80 truncate">{ev.time.split('~')[0]} {ev.isActual ? '(출석)' : '(예정)'}</div>
-                      </div>
+                        <div className="text-[10px] opacity-80 truncate">{ev.time.split('~')[0]} ({SESSION_STATUS_META[ev.status].label})</div>
+                      </button>
                     );
                   })}
                 </div>
@@ -347,26 +461,127 @@ export const ScheduleManager: React.FC<Props> = ({ studentInfos, paymentRecords 
           </button>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <button onClick={handleToday} className="px-4 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
             오늘
           </button>
           
-          <div className="flex items-center gap-3 text-xs font-semibold">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
             <div className="flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2 py-1 rounded">
-              <CheckCircle2 className="w-3.5 h-3.5" /> 결제/출석 완료
+              <CheckCircle2 className="w-3.5 h-3.5" /> 출석
+            </div>
+            <div className="flex items-center gap-1.5 text-purple-700 bg-purple-50 px-2 py-1 rounded">
+              <AlertCircle className="w-3.5 h-3.5" /> 보강
+            </div>
+            <div className="flex items-center gap-1.5 text-red-700 bg-red-50 px-2 py-1 rounded">
+              <AlertCircle className="w-3.5 h-3.5" /> 결석
             </div>
             <div className="flex items-center gap-1.5 text-slate-500 bg-slate-50 border border-slate-200 border-dashed px-2 py-1 rounded">
-              <CircleDashed className="w-3.5 h-3.5" /> 예정 스케줄
+              <CircleDashed className="w-3.5 h-3.5" /> 예정
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
+        {[
+          { label: '운영 기록', value: currentMonthOperationSummary.total, tone: 'bg-white text-text-main border-border-theme' },
+          { label: '출석', value: currentMonthOperationSummary.attended, tone: 'bg-blue-50 text-blue-700 border-blue-100' },
+          { label: '보강', value: currentMonthOperationSummary.makeup, tone: 'bg-purple-50 text-purple-700 border-purple-100' },
+          { label: '결석', value: currentMonthOperationSummary.absent, tone: 'bg-red-50 text-red-700 border-red-100' },
+          { label: '취소', value: currentMonthOperationSummary.cancelled, tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+        ].map(item => (
+          <div key={item.label} className={`rounded-xl border px-4 py-3 ${item.tone}`}>
+            <div className="text-xl font-black">{item.value}</div>
+            <div className="mt-1 text-xs font-bold opacity-80">{item.label}</div>
+          </div>
+        ))}
       </div>
 
       {/* View Content */}
       {viewMode === 'month' && renderMonthView()}
       {viewMode === 'week' && renderTimelineView(weekDays)}
       {viewMode === 'day' && renderTimelineView([currentDate])}
+
+      {editingEvent && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 no-print">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setEditingEvent(null)} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-border-theme bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="flex items-center gap-2 text-xl font-black text-text-main">
+                  <Clock className="h-5 w-5 text-primary" />
+                  수업 운영 기록
+                </h3>
+                <p className="mt-1 text-sm font-semibold text-text-muted">
+                  {editingEvent.date} · {editingEvent.time}
+                </p>
+              </div>
+              <button onClick={() => setEditingEvent(null)} className="rounded-lg p-2 text-text-muted hover:bg-bg-theme hover:text-text-main">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 rounded-xl bg-bg-theme px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-black text-text-main">
+                <User className="h-4 w-4 text-primary" />
+                {editingEvent.name}
+              </div>
+              <div className="mt-1 text-xs font-semibold text-text-muted">
+                {editingEvent.isActual ? '결제 기록 기반 수업' : '등록 시간표 기반 예정 수업'}
+              </div>
+            </div>
+
+            <label className="mb-4 block">
+              <span className="mb-2 block text-sm font-black text-text-main">상태</span>
+              <select
+                value={editingStatus}
+                onChange={(e) => setEditingStatus(e.target.value as SessionOperationStatus)}
+                className="w-full rounded-xl border border-border-theme bg-white px-4 py-3 text-sm font-bold outline-none focus:border-primary"
+              >
+                {(Object.keys(SESSION_STATUS_META) as SessionOperationStatus[]).map(status => (
+                  <option key={status} value={status}>{SESSION_STATUS_META[status].label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-black text-text-main">메모</span>
+              <textarea
+                value={editingNote}
+                onChange={(e) => setEditingNote(e.target.value)}
+                placeholder="결석 사유, 보강 예정일, 취소 사유 등을 기록"
+                className="h-28 w-full resize-none rounded-xl border border-border-theme bg-bg-theme px-4 py-3 text-sm font-semibold outline-none focus:border-primary"
+              />
+            </label>
+
+            <div className="mt-5 flex flex-wrap justify-between gap-2">
+              <button
+                onClick={resetOperationRecord}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-200"
+              >
+                <RotateCcw className="h-4 w-4" />
+                기본값
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingEvent(null)}
+                  className="rounded-xl border border-border-theme px-4 py-2 text-sm font-black text-text-muted hover:bg-bg-theme"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={saveOperationRecord}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-sm font-black text-white hover:bg-primary-dark"
+                >
+                  <Save className="h-4 w-4" />
+                  저장
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

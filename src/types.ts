@@ -15,6 +15,10 @@ export interface StudentInfo {
   disabilityType: string;
   treatmentArea: string;
   therapistName: string;
+  guardianName?: string;       // 보호자명
+  guardianPhone?: string;      // 보호자 연락처
+  guardianRelation?: string;   // 보호자 관계
+  messageConsent?: boolean;    // 메시지 수신 동의 여부
   scheduleTime?: string;       // 현재 수업 시간 (예: 17:40~18:20)
   scheduleDay?: string;        // 요일 (예: 목요일)
   scheduleFrequency?: string;  // 횟수 (예: 주 1 회)
@@ -52,6 +56,10 @@ export interface Student {
   };
   startDate: string;
   therapistName: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianRelation?: string;
+  messageConsent?: boolean;
   voucherArea?: string;
   paymentDates: string[]; // List of dates for the monthly journal
   monthlyAreas?: Record<number, string>; // month (1-12) -> area
