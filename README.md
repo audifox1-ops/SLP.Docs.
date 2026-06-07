@@ -40,7 +40,13 @@ Before deploying `firestore.rules`, enable:
 
 - Firebase Console > Authentication > Sign-in method > Anonymous
 
-The client initializes anonymous auth automatically so the app can keep the current no-login operator workflow while preventing unauthenticated public reads and writes.
+The client can initialize anonymous auth when explicitly enabled. Keep it disabled while the Firebase project has no Anonymous provider, otherwise the browser will call `identitytoolkit.googleapis.com` and receive `auth/configuration-not-found`.
+
+Enable the client-side anonymous auth call only after the Firebase Anonymous provider is active:
+
+```bash
+VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH=true
+```
 
 Deploy rules:
 

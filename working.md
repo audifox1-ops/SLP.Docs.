@@ -531,7 +531,7 @@ Change:
 - `src/firebase.ts`
   - Added Firebase Anonymous Auth initialization helper.
 - `src/App.tsx`
-  - Initializes anonymous auth on app start and shows a warning if Anonymous Auth is not enabled.
+  - Initializes anonymous auth only when `VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH=true` is set, avoiding `identitytoolkit` console errors when Anonymous Auth is not configured.
   - Adds a monthly submission dashboard on the home screen.
   - The dashboard shows annual plan status, selected-month journal status, payment record count vs expected count, guardian contact readiness, and missing issue count per student.
   - Each dashboard row can open the student's monthly journal workflow.
@@ -561,3 +561,35 @@ Next if interrupted:
 - Enable Firebase Console > Authentication > Anonymous before deploying `firestore.rules`.
 - Re-run `git diff --check && npm run lint && npm run build`.
 - In the UI, confirm the home dashboard shows `이번 달 제출 현황` rows and that `월간 열기` selects the target student.
+
+## 2026-06-07 Anonymous Auth Console Error Fix
+
+Objective:
+- Stop the browser console/network error caused by calling `identitytoolkit.googleapis.com/v1/accounts:signUp` when Firebase Anonymous Auth is not configured.
+
+Change:
+- `src/firebase.ts`
+  - Added `shouldUseAnonymousAuth()` and made `ensureAnonymousAuth()` return early unless `VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH=true`.
+- `src/App.tsx`
+  - Removed the visible Anonymous Auth warning state/UI.
+  - App startup now attempts anonymous auth only when the environment flag is explicitly enabled.
+  - The optional auth attempt no longer logs `Anonymous auth failed` to the browser console.
+- `README.md`
+  - Documented that anonymous auth is opt-in on the client and should only be enabled after the Firebase Anonymous provider is active.
+
+Decision:
+- Adopted. The previous baseline always attempted anonymous sign-in on startup, which triggered `auth/configuration-not-found` for this Firebase project. The candidate keeps the no-login local workflow quiet by default and preserves an explicit opt-in path for projects that enable Anonymous Auth.
+
+Verification:
+- `git diff --check`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `rg -n "Anonymous auth failed|identitytoolkit.googleapis.com/v1/accounts:signUp|auth/configuration-not-found|Firebase Anonymous Auth가 꺼져|authStatus|보안 인증" src/App.tsx src/firebase.ts dist/assets/index-*.js`: no matches.
+- `rg -n "^VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH" .env .env.example`: no matches, so the auth call is disabled by default in the current environment.
+
+Lock:
+- No active autoresearch lock changes were made in this fix pass.
+
+Next if interrupted:
+- Run `git status --short --branch`.
+- Start or refresh the app and confirm the browser console no longer shows the `identitytoolkit.googleapis.com/v1/accounts:signUp` 400 request or `Anonymous auth failed` log.

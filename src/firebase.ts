@@ -12,7 +12,12 @@ export const db = (firebaseConfig as any).firestoreDatabaseId
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 
+export function shouldUseAnonymousAuth() {
+  return (import.meta as any).env?.VITE_ENABLE_FIREBASE_ANONYMOUS_AUTH === 'true';
+}
+
 export async function ensureAnonymousAuth() {
+  if (!shouldUseAnonymousAuth()) return null;
   if (auth.currentUser) return auth.currentUser;
   const credential = await signInAnonymously(auth);
   return credential.user;

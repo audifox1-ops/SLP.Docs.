@@ -19,7 +19,7 @@ import { uploadFile, uploadBlob, deleteFileFromStorage } from './services/storag
 import { deleteTemplateFileChunks, loadTemplateFileFromChunks, saveTemplateFileChunks } from './services/templateFileService';
 import { ensureAnnualPlanPeriod, formatAnnualPlanPeriod, getAnnualPlanPeriodMonths } from './utils/annualPlanPeriod';
 import { getScheduleDayNumber, normalizeScheduleDay, normalizeScheduleFrequency, normalizeScheduleTime } from './utils/studentSchedule';
-import { db, OperationType, handleFirestoreError, ensureAnonymousAuth } from './firebase';
+import { db, OperationType, handleFirestoreError, ensureAnonymousAuth, shouldUseAnonymousAuth } from './firebase';
 import {
   collection,
   addDoc,
@@ -387,29 +387,11 @@ export default function App() {
   const [batchResults, setBatchResults] = useState<BatchMonthResult[]>([]);
   const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [preflightIssues, setPreflightIssues] = useState<string[]>([]);
-  const [authStatus, setAuthStatus] = useState<{ state: 'checking' | 'ready' | 'error'; message: string }>({
-    state: 'checking',
-    message: '보안 인증을 준비하고 있습니다.'
-  });
 
   useEffect(() => {
-    let mounted = true;
+    if (!shouldUseAnonymousAuth()) return;
     ensureAnonymousAuth()
-      .then(() => {
-        if (!mounted) return;
-        setAuthStatus({ state: 'ready', message: '보안 인증이 활성화되었습니다.' });
-      })
-      .catch((error) => {
-        console.warn('Anonymous auth failed:', error);
-        if (!mounted) return;
-        setAuthStatus({
-          state: 'error',
-          message: 'Firebase Anonymous Auth가 꺼져 있습니다. 보안 규칙 배포 전 Firebase Console에서 익명 인증을 활성화해 주세요.'
-        });
-      });
-    return () => {
-      mounted = false;
-    };
+      .catch(() => {});
   }, []);
 
   // Firestore Listeners
@@ -3813,17 +3795,6 @@ export default function App() {
             >
               {uploadStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
               {uploadStatus.message}
-            </motion.div>
-          )}
-          {authStatus.state === 'error' && (
-            <motion.div
-              initial={{ opacity: 0, y: -20, x: '-50%' }}
-              animate={{ opacity: 1, y: 0, x: '-50%' }}
-              exit={{ opacity: 0, y: -20, x: '-50%' }}
-              className="fixed top-20 left-1/2 z-50 flex max-w-xl items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/95 px-6 py-3 text-sm font-semibold text-amber-800 shadow-xl backdrop-blur-md"
-            >
-              <ShieldCheck className="h-5 w-5" />
-              {authStatus.message}
             </motion.div>
           )}
         </AnimatePresence>
